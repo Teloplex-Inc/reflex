@@ -11,6 +11,7 @@ SAFETY CONTRACT (cannot be bypassed by any model):
 4. Human review flag: --require-review mode logs proposals for Benton instead of applying.
 """
 import json, os, re, shutil, sqlite3, sys, time, hashlib, difflib
+from reflex import ledger  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GRANTS = json.load(open(os.path.join(HERE, "..", "reflex", "grants.json")
@@ -19,22 +20,33 @@ GRANTS = json.load(open(os.path.join(HERE, "..", "reflex", "grants.json")
 LEDGER = os.path.expanduser("~/.hermes/reflex/ledger.db")
 SNAPDIR = os.path.expanduser("~/.hermes/reflex/exec_snapshots")
 
-ALLOWED_ROOTS = ["/home/hermes/repos/", "/tmp/"]  # L0 whitelist; nothing outside is ever touched
+ALLOWED_ROOTS = ["/home/hermes/repos/",
+                 os.path.expanduser("~/.hermes/reflex/staging/")]  # L0 whitelist; nothing outside is ever touched
+# R-002 fix: /tmp dropped (world-writable, co-tenant races) — dedicated 0700 staging root instead.
+os.makedirs(os.path.expanduser("~/.hermes/reflex/staging/"), mode=0o700, exist_ok=True)
 
 def _allowed(path):
     p = os.path.realpath(path)
-    return any(p.startswith(os.path.realpath(r)) for r in ALLOWED_ROOTS)
+    return any(p == os.path.realpath(r) or p.startswith(os.path.realpath(r) + os.sep)
+               for r in ALLOWED_ROOTS)
 
 def grant_scan(diff_text):
-    """L0 static scan of the DIFF only (commands/code context, not prose)."""
+    """L0 static scan of the FULL payload (old + new text + path).
+
+    R-001 fix: the old implementation scanned a 200-char-truncated preview
+    while applying the FULL strings — any forbidden token placed past offset
+    200 was applied unverified (bypass reproduced by audit probe).
+    R-004 fix: patterns match on word boundaries, not raw substrings
+    ('push' no longer matches 'pushup'; 'sage' no longer matches 'message').
+    """
     low = diff_text.lower()
     for pat in GRANTS["operator"]["forbidden_patterns"]:
-        if pat in low:
+        if re.search(rf"(?<![a-z0-9_-]){re.escape(pat)}(?![a-z0-9_-])", low):
             return False, pat
     return True, None
 
 def log(action, path, detail, outcome):
-    led = sqlite3.connect(LEDGER, timeout=10)
+    led = ledger.connect()
     led.execute("INSERT INTO decisions (ts, task, state_hash, state_preview, question, answer, "
                 "confidence, threshold, action_taken, outcome, model_version) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -53,11 +65,12 @@ def execute_patch(path, old_text, new_text, require_review=False):
     if not os.path.exists(path):
         log("PROPOSED", path, old_text[:60], "REJECTED: file missing")
         return {"applied": False, "reason": "file not found"}
-    diff_preview = f"--- {path}\n- {old_text[:200]}\n+ {new_text[:200]}"
-    ok, hit = grant_scan(diff_preview)
+    diff_full = f"--- {path}\n- {old_text}\n+ {new_text}"  # R-001: full payload, never truncated
+    ok, hit = grant_scan(diff_full)
     if not ok:
-        log("PROPOSED", path, diff_preview, f"REJECTED: L0 pattern {hit}")
+        log("PROPOSED", path, diff_full[:200], f"REJECTED: L0 pattern {hit}")
         return {"applied": False, "reason": f"grants blocked pattern: {hit}"}
+    diff_preview = diff_full[:200]
     if require_review:
         log("PROPOSED", path, diff_preview, "AWAITING_HUMAN_REVIEW")
         return {"applied": False, "reason": "require_review", "proposal": diff_preview,

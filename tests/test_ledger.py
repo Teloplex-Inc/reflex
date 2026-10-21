@@ -89,7 +89,7 @@ def test_operator_exec_logs_on_fresh_ledger(tmp_ledger):
     import importlib
     import reflex.operator_exec as oe
     importlib.reload(oe)
-    p = "/tmp/reflex_test_probe.txt"
+    p = os.path.join(oe.ALLOWED_ROOTS[1], "reflex_test_probe.txt")
     with open(p, "w") as fh:
         fh.write("alpha\n")
     r = oe.execute_patch(p, "alpha", "beta")
