@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import sqlite3, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from reflex.ledger import connect as ledger_connect
 """L2 shadow pass — reads new captured turns, runs the four-agent harness in SHADOW
 (Research-only draft: what would L2 do?), logs to the reflex ledger.
 No execution, no user-visible effect. Runs via the ops cron.
@@ -27,7 +30,7 @@ SYS = ("You are the L2 shadow layer of an agent system. Given a user request, dr
 def main():
     if not os.environ.get("L2_SHADOW_ON"):
         print("L2 shadow disabled (set L2_SHADOW_ON=1)"); return
-    led = sqlite3.connect(LEDGER, timeout=10)
+    led = ledger_connect()
     # pick new turns: captured, answered, not yet shadow-passed
     led.execute("""CREATE TABLE IF NOT EXISTS l2_shadow (
         message_id TEXT PRIMARY KEY, ts TEXT, l1_task TEXT, draft TEXT, tier_call TEXT)""")

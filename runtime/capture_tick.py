@@ -1,6 +1,9 @@
+import sqlite3, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from reflex.ledger import connect as ledger_connect
 import sqlite3, hashlib
 s = sqlite3.connect('/home/hermes/.hermes/state.db')
-l = sqlite3.connect('/home/hermes/.hermes/reflex/ledger.db')
+l = ledger_connect()
 # robust: never rely on ts typing; capture ALL active user turns not yet in ledger
 have = {r[0] for r in l.execute("SELECT message_id FROM captured_turns")}
 rows = s.execute("SELECT id, session_id, timestamp, content FROM messages WHERE role='user' AND active=1").fetchall()

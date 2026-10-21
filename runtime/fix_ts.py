@@ -1,5 +1,8 @@
+import sqlite3, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from reflex.ledger import connect as ledger_connect
 import sqlite3, hashlib, datetime
-l = sqlite3.connect('/home/hermes/.hermes/reflex/ledger.db')
+l = ledger_connect()
 # normalize any ISO text ts to epoch float
 rows = list(l.execute("SELECT message_id, ts FROM captured_turns WHERE typeof(ts)='text'"))
 n=0

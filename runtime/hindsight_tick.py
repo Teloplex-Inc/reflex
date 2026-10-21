@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import sqlite3, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from reflex.ledger import connect as ledger_connect
 """Hindsight labeling tick: refresh outcome labels on captured turns.
 Labels: answered (did an assistant reply land), hindsight_label
 (satisfied = next user msg moved on / corrected = next user msg complains or re-asks;
@@ -15,7 +18,7 @@ CORRECTION = re.compile(
     r"same (?:issue|problem|error)|you(?:'?re| are)? (?:wrong|misunderstood)|doesn'?t work|broken)\b", re.I)
 
 def main():
-    led = sqlite3.connect(LEDGER, timeout=10)
+    led = ledger_connect()
     s = sqlite3.connect(STATE, timeout=10)
     rows = s.execute("""SELECT session_id, id, role, content, timestamp FROM messages
                         WHERE active=1 ORDER BY session_id, timestamp, id""").fetchall()

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import sqlite3, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from reflex.ledger import connect as ledger_connect
 """P2 reflex ledger hook — shadow mode (no behavior change).
 Called by the gateway/main-agent before routing a user turn. Logs the Reflex
 decision it WOULD make. Deployed 2026-09-20 per Benton P2 approval.
@@ -31,7 +34,7 @@ def main():
 
         state_canon = json.dumps(state, sort_keys=True)
         sh = hashlib.sha256(state_canon.encode()).hexdigest()
-        led = sqlite3.connect(LEDGER, timeout=5)
+        led = ledger_connect()
         led.execute(
             "INSERT INTO decisions (ts, task, state_hash, state_preview, question, answer, "
             "confidence, threshold, action_taken, model_version) VALUES (?,?,?,?,?,?,?,?,?,?)",
