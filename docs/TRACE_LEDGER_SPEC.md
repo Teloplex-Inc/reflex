@@ -18,7 +18,7 @@ The ledger today cannot answer that:
   (`reflex/capture.py`). There are no tool calls, tool results, model outputs or token
   counts.
 - Cron sessions are filtered out of scoring and reporting
-  (`session_id NOT LIKE 'cron_%'` in `l1_score.py`, `csp.py`, `l2_e2e.py`,
+  (`session_id NOT LIKE 'cron_%'` in `l1_score.py`, `csp.py` and
   `p45_report.py`). Scheduled work is the most likely place to find recurrence.
 - The outcome label is one column, set by a regex over the next user message
   (`reflex/hindsight.py`). There is no record of where a label came from or how strong
@@ -243,7 +243,7 @@ first.
 - Every outcome row names its source and strength.
 - A redaction test set of planted secrets yields zero secrets in the ledger and blobs.
 - `reflex report` runs offline and reproduces the same numbers on a second run.
-- Existing ticks (`capture`, `hindsight`, `l1_score`, `l2_shadow`) run unchanged.
+- Existing ticks (`capture`, `hindsight`, `l1_score`) run unchanged.
 
 ## 8. Plan
 

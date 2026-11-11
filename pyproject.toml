@@ -1,7 +1,7 @@
 [project]
 name = "reflex-layer"
 version = "0.1.0"
-description = "Reflex: the intelligence layer between your agent harness and frontier-model calls — calibrated decision models, four-agent execution, self-training on your traffic."
+description = "Reflex: the learning layer for agent stacks. Calibrated decision models and an evidence gate that move recurring work off the frontier model, trained on your own traffic."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"

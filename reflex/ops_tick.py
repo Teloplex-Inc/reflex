@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Reflex ops tick — the self-debugging version of all four data steps.
-Runs: capture -> hindsight -> L1 scoring -> L2 shadow. Each step:
+"""Reflex ops tick — the self-debugging version of the three data steps.
+Runs: capture -> hindsight -> L1 scoring. Each step:
   - catches its own errors, logs them to ~/.hermes/reflex/errors.log
   - retries once after a tunnel/server health check
   - reports per-step status so a cron can see exactly what failed
@@ -12,7 +12,6 @@ STEPS = [
     ("capture",   ["python3", "/home/hermes/.hermes/reflex/capture_tick.py"], {}),
     ("hindsight", ["python3", "/home/hermes/.hermes/reflex/hindsight_tick.py"], {}),
     ("l1_score",  ["python3", "/home/hermes/.hermes/reflex/l1_score_turns.py"], {}),
-    ("l2_shadow", ["python3", "/home/hermes/.hermes/reflex/l2_shadow_pass.py"], {"L2_SHADOW_ON": "1"}),
 ]
 ERR_LOG = os.path.expanduser("~/.hermes/reflex/errors.log")
 
@@ -62,7 +61,7 @@ def main():
         status, msg = run_step(name, cmd, env)
         if status != "OK":
             # self-debug: health check + one retry (unless capture/hindsight which are local-only)
-            if name in ("l1_score", "l2_shadow"):
+            if name == "l1_score":
                 hc = health_check()
                 report.append(f"  [debug] health: {hc}")
                 if any(v == "STILL_DEAD_pod_server_down" for v in hc.values()):

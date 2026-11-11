@@ -1,5 +1,0 @@
-{
-  "request": "Read the reflex-decision-layer-plan.md spec in this repo and assess: which phase (P1-P6) is the weakest-specified, and what concrete spec change would most improve the program. Propose the edit.",
-  "evidence_paths": ["/home/hermes/repos/teloplex/brain/reflex-decision-layer-plan.md"],
-  "deliverable": "report"
-}

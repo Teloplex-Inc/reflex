@@ -1,3 +1,3 @@
-"""Reflex — the intelligence layer between your harness and the frontier model.
-L0 code owns authority; L1 calibrated decisions; L2 four-agent execution; L3 stays frontier."""
+"""Reflex — the learning layer for agent stacks.
+Code owns authority; calibrated decision models answer typed questions; the frontier model handles what is new."""
 __version__ = "0.1.0"

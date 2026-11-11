@@ -129,7 +129,7 @@ Expected mix once running, as a working assumption to be measured: most promoted
 is code, with a minority of holes ever gathering enough examples to train a model for.
 
 The v1 "L2" tier, a four-agent pipeline on a small general model, is not part of this
-design. See section 14.
+design and has been removed from the code. See section 14.
 
 ## 7. The gate
 
@@ -294,7 +294,7 @@ shared decision models need pooled data that users may not be able to release.
 | Hindsight labelling | Regex, one column | Kept as one weak source among several. |
 | Controlled-Skip Protocol | Phase 0 for the needs-full-agent head | Generalised to every route and model. |
 | Grants and operator execute path | Static grants, snapshot-backed patching | Kept. Route capability manifests extend the grants file. |
-| Four-agent harness (`harness.py`, `l2_shadow.py`, `l2_e2e.py`) | Research, Judge, Report, Operator on a small general model | Decided 2026-11-11: frozen, not extended. Compiled routes replace it as the middle tier. |
+| Four-agent harness (`harness.py`, `l2_shadow.py`, `l2_e2e.py`) | Research, Judge, Report, Operator on a small general model | Removed 2026-11-11. Compiled routes replace it as the middle tier. The tag `v1-four-agent` marks the last commit that contains it; the ledger tables it wrote are kept as data. |
 | Adapters | Hermes gate; thin Claude Code, Codex, LangChain wrappers | Become trace importers plus a tool endpoint. |
 
 Current state, for the record: scoring runs in shadow as a batch over captured turns,
@@ -328,8 +328,8 @@ layer; first gateway that learns from traffic; first typed decision models. The
 defensible wording is "to our knowledge, the first to gate compiled routes on outcome
 evidence and distil their decision steps".
 
-One follow-up for the README: it credits AgentRun with a "four-agent execution
-pattern". The search could not confirm that pattern in AgentRun's repository.
+The v1 README credited AgentRun with a "four-agent execution pattern". The search could
+not confirm that pattern in AgentRun's repository, and the credit has been removed.
 
 ## 16. Risks
 
@@ -368,8 +368,8 @@ Each phase ends with a measurement that decides whether to continue.
 
 ## 18. Open questions
 
-1. The four-agent harness is frozen. Is its code removed from the package or left in
-   place until routes cover its uses?
+1. Resolved 2026-11-11: the four-agent harness code was removed rather than left in
+   place. It had no live use, and git history and the `v1-four-agent` tag preserve it.
 2. What is a task class? Tool-sequence signature is the v1 answer; it will under-merge.
 3. Who writes the per-class verifier: the compiling model, checked against holdouts, or
    a person?

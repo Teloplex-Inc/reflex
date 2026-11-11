@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Operator EXECUTE path v1 — reversible actions only, L0-grant-checked, full audit trail.
-The one piece that turns the L2 harness from proposals-only into an acting layer.
+The snapshot-backed path through which a reversible file edit is applied and can be reverted.
 
 SAFETY CONTRACT (cannot be bypassed by any model):
 1. Only `patch_file` operations (unified-diff style find/replace) on files under an
