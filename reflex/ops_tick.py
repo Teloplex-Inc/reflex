@@ -15,6 +15,20 @@ STEPS = [
 ]
 ERR_LOG = os.path.expanduser("~/.hermes/reflex/errors.log")
 
+# Pod connection comes from the environment; nothing about the host is kept in the repo.
+#   REFLEX_POD_SSH_HOST  user@host        REFLEX_POD_SSH_PORT  ssh port (default 22)
+#   REFLEX_POD_SSH_KEY   path to the private key
+# With REFLEX_POD_SSH_HOST unset, the tick still runs but cannot restart tunnels or servers.
+POD_HOST = os.environ.get("REFLEX_POD_SSH_HOST")
+POD_PORT = os.environ.get("REFLEX_POD_SSH_PORT", "22")
+POD_KEY = os.environ.get("REFLEX_POD_SSH_KEY")
+
+def _ssh_base():
+    cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=30", "-p", POD_PORT]
+    if POD_KEY:
+        cmd += ["-i", POD_KEY]
+    return cmd
+
 def health_check():
     """Verify tunnels + servers; restart if needed (tunnels are local, servers via SSH)."""
     import urllib.request, subprocess, time
@@ -26,12 +40,11 @@ def health_check():
         except Exception:
             results[port] = "dead"
     if any(v == "dead" for v in results.values()):
+        if not POD_HOST:
+            return {p: ("no_pod_configured" if v == "dead" else v) for p, v in results.items()}
         # restart tunnels (one ssh, both forwards)
         subprocess.run(["pkill", "-f", "8001:localhost:8000"], capture_output=True)
-        subprocess.Popen(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=30",
-                          "-i", "/home/hermes/.ssh/runpod_prime", "-p", "12853", "-N",
-                          "-L", "8001:localhost:8000", "-L", "8002:localhost:8002",
-                          "root@35.131.57.12"],
+        subprocess.Popen(_ssh_base() + ["-N", "-L", "8001:localhost:8000", "-L", "8002:localhost:8002", POD_HOST],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(6)
         for port in (8001, 8002):
@@ -66,8 +79,7 @@ def main():
                 report.append(f"  [debug] health: {hc}")
                 if any(v == "STILL_DEAD_pod_server_down" for v in hc.values()):
                     # servers down on pod — restart L1 then L2 via SSH (boot order!)
-                    subprocess.run(["ssh", "-o","StrictHostKeyChecking=no","-i","/home/hermes/.ssh/runpod_prime",
-                        "-p","12853","root@35.131.57.12",
+                    subprocess.run(_ssh_base() + [POD_HOST,
                         "cd /workspace && nohup /opt/vllm-venv/bin/python -m vllm.entrypoints.openai.api_server "
                         "--model /workspace/gemma-1b --served-model-name reflex-v05 --enable-lora "
                         "--lora-modules reflex-v05=/workspace/gemma-1b-lora --max-lora-rank 16 --port 8002 "

@@ -1,6 +1,6 @@
 # Trace Ledger Spec (v1 draft)
 
-**Status:** draft for review, 2026-11-11
+**Status:** v1 implemented 2026-11-11 and awaiting a test on real fleet data. See section 9.
 **Companion:** [DESIGN_V2.md](DESIGN_V2.md)
 **Scope:** extend the Reflex ledger from turn previews to full execution traces with
 outcomes and cost, and define the first report built on it. Nothing in this spec changes
@@ -70,6 +70,7 @@ answer it, or one run of a scheduled job.
 | `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens` | INTEGER NULL | Sums over spans. NULL when any span is unknown. |
 | `cost_usd` | REAL NULL | NULL when unknown. Never 0 for a paid call of unknown price. |
 | `cost_basis` | TEXT | `reported`, `estimate`, `unknown`. |
+| `backfilled` | INTEGER | 1 when imported from history rather than captured live; cost data may be missing. |
 | `redaction_version` | TEXT | Version of the redaction rules applied. |
 
 ### 3.2 `spans`: one row per step inside a trace
@@ -91,7 +92,7 @@ answer it, or one run of a scheduled job.
 | `cost_usd`, `cost_basis` | REAL NULL, TEXT | As on `traces`. |
 | `status` | TEXT | `ok`, `error`, `blocked`, `interrupted`. |
 | `error` | TEXT NULL | |
-| `side_effect` | TEXT | `read`, `reversible_write`, `irreversible`, `unknown`. Set from a static table keyed by tool name, never by a model. |
+| `side_effect` | TEXT NULL | Tool calls only: `read`, `reversible_write`, `irreversible`, `unknown`. Set from the static table `reflex/side_effects.json`, keyed by tool name, never by a model. NULL for other spans. |
 
 `decision` spans record L1 verdicts (question, answer, confidence, threshold, model
 version). `route` spans are reserved for compiled routes and are unused in v1.
@@ -264,10 +265,53 @@ first.
 8. In parallel: capture a sample of OTLP traces from one third-party gateway and one
    sandbox, and record whether tool inputs and outputs are present.
 
-## 9. Open questions
+## 9. Implementation status and fleet test checklist
 
-1. What defines a trace boundary in a long interactive session: each user turn, or a
-   run of turns on one task?
+Built and covered by `tests/` (run `python -m unittest discover -s tests`):
+
+| Piece | Module |
+|---|---|
+| Schema and idempotent migration | `reflex/ledger_schema.sql`, `reflex/ledger.py` |
+| Redaction, blobs, totals, outcomes, hindsight backfill | `reflex/redact.py`, `reflex/ledger.py` |
+| Proxy capture and import | `reflex/importers/proxy.py` |
+| OTLP import | `reflex/importers/otlp.py` |
+| Hermes schema inspector and provisional importer | `reflex/importers/hermes.py` |
+| Report | `reflex/report.py` |
+
+Tested only on synthetic data so far. Not built: the compile-coverage test (section 6.1),
+retention settings, and a gateway that calls `record_exchange`.
+
+Known limits of this version:
+
+- The Hermes importer is turn-level only: it records no tool arguments, token counts or
+  cost, and names non-assistant steps after their role. It needs the schema dump below.
+- The OTLP attribute names in `otlp.ATTRS` are candidates, not checked against one
+  pinned convention version.
+- Proxy import understands OpenAI-style chat requests. A new trace starts at each new
+  user message.
+- Only six tool names are classified in `side_effects.json`. Every other tool is
+  `unknown`, which blocks its cluster from being a candidate until a person classifies it.
+
+Checklist for the fleet, in order:
+
+1. `python -m unittest discover -s tests` passes on the fleet machine.
+2. `python -m reflex inspect-hermes` and send back the output. It is redacted and
+   truncated, but read it before sharing. This decides importer versus proxy capture.
+3. `python -m reflex migrate`, then confirm the existing ticks still run and existing
+   tables are unchanged.
+4. `python -m reflex import-hermes`, `backfill-outcomes`, then `report`. This gives a
+   first recurrence picture from request text alone.
+5. Wire `reflex.importers.proxy.record_exchange` into the model gateway, capture for a
+   day, run `import-proxy`, and compare token totals with the provider's billing.
+6. Add the fleet's real tool names to `reflex/side_effects.json`.
+7. Plant fake secrets in a test session and confirm none appear in the ledger, the
+   blobs or the capture log.
+8. Report anything the importers skip, mislabel or split wrongly.
+
+## 10. Open questions
+
+1. What defines a trace boundary in a long interactive session: each user turn (what
+   the importers do now), or a run of turns on one task?
 2. Should sub-agent runs be child spans of the parent trace or traces of their own?
 3. How much of a tool result must be kept for a route to be compiled from it, and is a
    64 KB inline limit the right cut?

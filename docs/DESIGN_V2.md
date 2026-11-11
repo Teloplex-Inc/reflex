@@ -290,7 +290,7 @@ shared decision models need pooled data that users may not be able to release.
 | Component | Today | v2 |
 |---|---|---|
 | L1 heads (`score.py`, `l1_score.py`, training scripts) | Four fixed heads, shadow scoring | Kept. They become the first decision models under the general gate. |
-| Ledger | `decisions`, `captured_turns` and four side tables | Extended per the ledger spec. Existing tables unchanged. |
+| Ledger | `decisions`, `captured_turns` and four side tables | Extended per the ledger spec (v1 built, awaiting a fleet test). Existing tables unchanged. |
 | Hindsight labelling | Regex, one column | Kept as one weak source among several. |
 | Controlled-Skip Protocol | Phase 0 for the needs-full-agent head | Generalised to every route and model. |
 | Grants and operator execute path | Static grants, snapshot-backed patching | Kept. Route capability manifests extend the grants file. |

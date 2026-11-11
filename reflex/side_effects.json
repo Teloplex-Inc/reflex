@@ -1,0 +1,9 @@
+{
+  "_note": "Static, human-edited map from tool name to side-effect class. No model output may change it. Classes: read | reversible_write | irreversible. A tool not listed here is 'unknown' and blocks a task class from being a compile candidate until someone classifies it.",
+  "read_file": "read",
+  "search_files": "read",
+  "web_search": "read",
+  "web_extract": "read",
+  "write_file": "reversible_write",
+  "patch": "reversible_write"
+}

@@ -13,7 +13,8 @@ Your traces never leave your machine. Nothing phones home.
 
 **Status: pre-1.0, and in transition.** The decision models, the ledger and the
 controlled-skip protocol exist and run in shadow inside Teloplex's own agent fleet. The
-route compiler, the general evidence gate and the report tool are designed but not built.
+trace ledger and report are built and tested on synthetic data only. The route compiler
+and the general evidence gate are designed but not built.
 The sections below say which is which. The full design is in
 [docs/DESIGN_V2.md](docs/DESIGN_V2.md).
 
@@ -79,15 +80,22 @@ their traces and plugs routes back in as tools.
 Scoring runs in shadow by default: it records what Reflex would decide and changes
 nothing.
 
-Not in this repository yet: the trained weights, the nightly retraining job and its
-deploy check, and the tier gateway the Hermes note below refers to.
+- **Trace ledger and report (new, tested on synthetic data only).** Full traces with
+  per-call cost and sourced outcomes, importers for a model-gateway capture log,
+  OpenTelemetry exports and Hermes history, secret redaction, and `reflex report`. See
+  [docs/TRACE_LEDGER_SPEC.md](docs/TRACE_LEDGER_SPEC.md), section 9, for what is built
+  and its limits.
+- **Deploy check.** `python -m reflex deploy-gate` compares two eval files and blocks a
+  candidate that is worse. See `reflex/deploy_gate.py`.
+
+Not in this repository yet: the trained weights, the nightly retraining job, and the
+tier gateway the Hermes note below refers to.
 
 ## What is planned
 
 | Piece | Where it is specified |
 |---|---|
-| Full-trace ledger: every model call and tool call, with cost and sourced outcomes | [docs/TRACE_LEDGER_SPEC.md](docs/TRACE_LEDGER_SPEC.md) |
-| `reflex report`: where your tokens go and which work recurs, from traces you already have | Ledger spec, section 6 |
+| A measurement on real traffic: how much recurring work can be compiled | [docs/TRACE_LEDGER_SPEC.md](docs/TRACE_LEDGER_SPEC.md), section 6.1 |
 | Route compiler, matchers and guards | [docs/DESIGN_V2.md](docs/DESIGN_V2.md), sections 4 to 7 |
 | One evidence gate for every route and model, with automatic demotion | Design, section 7 |
 | Corrections turned into tests; repair of failing routes | Design, sections 5 and 8 |
@@ -130,6 +138,12 @@ none exist yet.
 
 ```bash
 pip install -e .
+python -m unittest discover -s tests      # no dependencies needed
+
+# see where your tokens go and which work recurs
+python -m reflex import-otlp traces.jsonl # or import-proxy / import-hermes
+python -m reflex report
+
 # score a request against a served L1 decision model
 # (set REFLEX_L1_URL to an OpenAI-compatible endpoint serving the model):
 echo "check the price of the RTX 4070" | python -m reflex score

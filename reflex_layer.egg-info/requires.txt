@@ -1,9 +1,0 @@
-
-[l1]
-torch
-transformers>=4.50
-peft
-sentencepiece
-
-[serve]
-vllm>=0.10
