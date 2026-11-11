@@ -158,13 +158,18 @@ writes them on the trace, not on spans:
 Importing again rewrites each trace in place and keeps its outcomes, so sessions still
 running at the last import are brought up to date.
 
-Still unverified:
+Answered by the fleet on 2026-11-11:
 
-- whether `input_tokens` includes cached tokens;
-- what `active = 0` covers. Inactive and compressed-summary rows are skipped, so a
-  compacted session can show fewer steps than it ran, though its cost is whole;
-- what `effect_disposition` holds. It may be Hermes' own side-effect class and could
-  feed `side_effect` in place of the static table.
+- `input_tokens` excludes cached tokens; the two are counted separately. The importer
+  adds cache read and cache write to input, so the ledger's input is the whole prompt.
+- `actual_cost_usd` is 0 or NULL where the provider reports no per-call cost, such as a
+  flat-rate plan. The importer treats 0 as not reported and falls back to
+  `estimated_cost_usd`, marked `estimate`.
+- `active = 0` marks messages that were compacted or superseded. They are real work.
+  They are still skipped, with compressed-summary rows, so a compacted session can show
+  fewer steps than it ran, though its tokens and cost are whole. Importing them is open
+  (section 10).
+- `effect_disposition` is empty on the fleet and cannot feed `side_effect`.
 
 ### 4.2 Proxy capture
 
@@ -299,8 +304,16 @@ Built and covered by `tests/` (run `python -m unittest discover -s tests`):
 First fleet run, 2026-11-11, with the earlier turn-level importer: tests pass on Linux,
 the migration left the existing tables and ticks working, and 5,661 traces were imported
 (4,028 scheduled, 1,633 interactive). 59 of 286 clusters recur and cover 95.3% of traces.
-Token and cost columns were empty in that run, so it says nothing yet about cost. The
-full importer has since been built and has run on synthetic data only.
+Token and cost columns were empty in that run, so it says nothing yet about cost.
+
+Second fleet run, same day, with the full importer: 5,662 traces, 57,962 tool calls,
+6.1 billion input tokens. With tool sequences in the cluster key, 79 of 2,655 clusters
+recur; they cover 49.1% of traces and 15.3% of tokens. Four clusters (0.1% of tokens)
+pass the candidate rule; almost every recurring cluster is blocked because it uses the
+shell tool, which has no side-effect class (36,421 calls). Ten one-off traces hold 23%
+of all tokens. Cost came out as $0.00 against $1,443.49
+estimated in `state.db`; the fallback described in section 4.1 fixes this and awaits a
+re-run.
 
 Not built: the compile-coverage test (section 6.1), retention settings, and a gateway
 that calls `record_exchange`.
@@ -327,8 +340,9 @@ Checklist for the fleet, in order:
    tables are unchanged. Done 2026-11-11.
 4. Pull, then `python -m reflex import-hermes`, `backfill-outcomes`, then `report`.
    Existing traces are refreshed in place with tool calls, tokens and cost.
-5. Compare the ledger's total cost with the sum of `actual_cost_usd` in `state.db`, and
-   that with the provider's billing for the same period.
+5. Compare the ledger's total cost with the sum of `estimated_cost_usd` in `state.db`
+   (or `actual_cost_usd` where the provider reports it), counting the cost
+   `import-hermes` reports for sessions without turns.
 6. The report now lists tools with no side-effect class. Add the fleet's tool names to
    `reflex/side_effects.json`.
 7. Plant fake secrets in a test session and confirm none appear in the ledger or blobs.
@@ -348,3 +362,6 @@ the fleet so no script can pick a different file.
    64 KB inline limit the right cut?
 4. Which outcome sources can be added cheaply after the regex: an explicit accept or
    reject command, or a verifier run per cluster?
+5. Should Hermes messages with `active = 0` be imported? They are real steps, but it is
+   not yet known whether any of them duplicate an active message (an edited or retried
+   turn), which would double-count work.

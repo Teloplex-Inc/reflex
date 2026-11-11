@@ -368,7 +368,7 @@ class HermesImportTest(Base):
         s.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?)", m)
         s.executemany("INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?)", [
             ("s1", "discord", "big-model", 1, 1, 0, 0, None, None),      # overridden by the usage rows
-            ("job_a_1", "cron", "big-model", 500, 50, 0, 0, 0.02, None),
+            ("job_a_1", "cron", "big-model", 500, 50, 200, 0, 0.02, 0.0),  # actual 0 = not reported
             ("s3", "cli", "big-model", None, None, None, None, None, None),
             ("ghost", "cli", "big-model", 100, 10, 0, 0, None, 0.5),     # usage, but no messages
         ])
@@ -398,15 +398,16 @@ class HermesImportTest(Base):
         self.assertEqual((t1[12], t1[13]), ("It is a learning layer.", "1"))
         self.assertEqual(t2[:6], ("s1", "thanks, shorter please", "interactive", "completed", 1, 0))
         # session figures split 2:1 across its turns, adding up exactly, and marked as an estimate
-        self.assertEqual((t1[6] + t2[6], t1[7] + t2[7], t1[8] + t2[8]), (3301, 330, 900))
-        self.assertEqual((t1[6], t2[6]), (2201, 1100))
+        # input includes the cached tokens Hermes counts separately
+        self.assertEqual((t1[6] + t2[6], t1[7] + t2[7], t1[8] + t2[8]), (4201, 330, 900))
+        self.assertEqual((t1[6], t2[6]), (2801, 1400))
         self.assertAlmostEqual(t1[9] + t2[9], 0.10)
         self.assertAlmostEqual(t1[9], 0.10 * 2 / 3)
         self.assertEqual((t1[10], t2[10], t1[11]), ("estimate", "estimate", 0))
 
         # one-turn session: the session's own figures; only an estimated cost exists
         self.assertEqual(cron[:6], ("job_a_1", "run the daily digest", "cron", "interrupted", 1, 1))
-        self.assertEqual(cron[6:8], (500, 50))
+        self.assertEqual(cron[6:9], (700, 50, 200))
         self.assertAlmostEqual(cron[9], 0.02)
         self.assertEqual(cron[10], "estimate")
 

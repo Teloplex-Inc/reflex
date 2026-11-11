@@ -161,11 +161,12 @@ def _totals_from(rows):
     known = [r for r in rows if r.get("input_tokens") is not None]
     for f in TOKEN_FIELDS:
         t[f] = sum(r.get(f) or 0 for r in known) if known else None
-    if t["input_tokens"] is not None and (t["cache_read_tokens"] or 0) > t["input_tokens"]:
-        # input smaller than its own cached part: input excludes cache here, so add it back
+    if t["input_tokens"] is not None:
+        # Hermes counts input and cache separately; the ledger's input includes cache
         t["input_tokens"] += (t["cache_read_tokens"] or 0) + (t["cache_write_tokens"] or 0)
-    actual = [r["actual_cost_usd"] for r in rows if r.get("actual_cost_usd") is not None]
-    costs = [r["actual_cost_usd"] if r.get("actual_cost_usd") is not None else r.get("estimated_cost_usd")
+    # an actual cost of 0 means the provider reported none (flat-rate plans), not a free call
+    actual = [r["actual_cost_usd"] for r in rows if r.get("actual_cost_usd")]
+    costs = [r["actual_cost_usd"] if r.get("actual_cost_usd") else r.get("estimated_cost_usd")
              for r in rows]
     priced = [c for c in costs if c is not None]
     if not priced:
