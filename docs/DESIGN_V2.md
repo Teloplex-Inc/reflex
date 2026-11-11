@@ -146,8 +146,12 @@ thresholds are unchanged and apply per route:
 
 Rules that hold at every stage:
 
-- **Never deploy worse.** A candidate replaces an incumbent only if it is at least as
-  good on every metric of that route's eval set, not on average.
+- **Never deploy worse.** A candidate replaces an incumbent only if it is not worse on
+  any metric of that route's eval set, not on average. "Worse" means worse beyond that
+  metric's confidence interval, so a small eval set does not veto on noise. Safety
+  metrics and calibration get no such allowance: any measured regression blocks. There
+  is no judgment-based tolerance; the only exception path is the written justification
+  in the deploy log that LABELING.md already requires.
 - **Demotion is automatic.** Triggers: a failed audit sample, a correction on a skipped
   request, a guard-failure rate above its bound, or an eval regression after a change.
   One corrected skip pauses that route, not the system.
@@ -160,6 +164,32 @@ Rules that hold at every stage:
 
 Shadow-agreement and audit-rate thresholds are not yet set. Per LABELING.md, any number
 that did not come from a ledger measurement is a placeholder and is marked as one.
+
+### 7.1 Matchers
+
+The matcher is the most dangerous part of a route. Its two errors are not equal: a
+matcher that claims too little costs money, because the request goes to the frontier
+model as it does today. A matcher that claims too much sends a look-alike request down
+a route built for something else, and the result can be wrong without any guard
+failing. That is silent quality loss, and it damages trust in every route.
+
+Rules:
+
+- **Biased toward declining.** A matcher claims a request only at high calibrated
+  confidence. When unsure, it declines.
+- **A matcher is a decision model.** It is trained, calibrated and promoted through the
+  gate like any other, with its own eval set that includes near-miss requests.
+- **Guards check inputs first.** Input guards run before the program does, so a
+  wrongly claimed request can still be handed back before any work is done.
+- **Every refusal is logged.** Each declined or handed-back request records which
+  matcher or guard refused it and why, so refusals can be inspected and near misses
+  can be added to the eval set.
+- **Over-claiming is measured in shadow.** While the incumbent still answers, each
+  claimed request is compared with the incumbent's result. The over-claim rate is part
+  of the evidence record and a promotion criterion.
+- **Audits lean toward doubtful matches.** After promotion, the audit sample is
+  weighted toward low-confidence claims rather than drawn uniformly, since that is
+  where over-claiming shows first.
 
 ## 8. Outcomes and labels
 
@@ -237,6 +267,12 @@ share.
 
 - **Format.** A route package is its manifest, program, hole definitions, eval set and
   evidence record. The format is intended to be open and implementable by other hosts.
+- **Route language, in two steps.** The first routes, compiled for our own fleet and
+  not shared, are Python functions whose tool calls are declared in the manifest and
+  enforced at run time. Before any route is shared, a restricted, checkable format is
+  derived from what those routes needed, so that an imported route can be reviewed and
+  sandboxed without reading arbitrary code. Existing typed workflow formats are
+  evaluated before a new one is designed.
 - **Registry.** Shared routes carry their evidence. An imported route starts at the
   candidate stage on the importing machine and must pass the local gate before it gains
   any authority there.
@@ -311,8 +347,11 @@ pattern". The search could not confirm that pattern in AgentRun's repository.
 
 Each phase ends with a measurement that decides whether to continue.
 
-1. **Ledger and report.** Build per the ledger spec. Exit: a week of fleet traces,
-   totals matching billing, and the compile-coverage number.
+1. **Ledger and report.** Build per the ledger spec. Capture for two to four weeks, or
+   long enough to see several runs of the longest-period scheduled job, and backfill
+   earlier history where the source holds it. Exit: totals matching billing, and the
+   compile-coverage number on the fleet and on one public trace dataset. The fleet is
+   small, so its number alone is a weak result.
 2. **First routes by hand.** Compile the top few clusters with a frontier model, write
    their eval sets, and run them in shadow. Exit: shadow agreement measured on real
    traffic.
@@ -334,8 +373,10 @@ Each phase ends with a measurement that decides whether to continue.
 2. What is a task class? Tool-sequence signature is the v1 answer; it will under-merge.
 3. Who writes the per-class verifier: the compiling model, checked against holdouts, or
    a person?
-4. Route language: Python functions with declared tool calls, or a restricted workflow
-   format that is easier to check and share?
-5. How is a matcher kept from claiming requests that only look like its class?
+4. Route language for sharing: which restricted format, and can an existing typed
+   workflow format be adopted instead of designing one? (Section 13 fixes the order:
+   Python first for our own routes, restricted format before sharing.)
+5. Matchers: section 7.1 sets the rules. What confidence threshold and what over-claim
+   rate are acceptable for promotion? Both need measuring.
 6. Which outcome signal can users give with the least friction?
 7. What audit sampling rate is enough to catch a route going bad, and at what cost?

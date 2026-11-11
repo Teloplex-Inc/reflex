@@ -234,7 +234,9 @@ first.
 
 ## 7. Acceptance criteria
 
-- A week of fleet traffic is in the ledger with spans for every model and tool call.
+- Two to four weeks of fleet traffic are in the ledger, covering several runs of the
+  longest-period scheduled job, with spans for every model and tool call. The window is
+  a placeholder until job periods are known.
 - Per-trace token totals agree with the provider's billed usage for the same period to
   within 5% (placeholder tolerance).
 - Cron sessions are present and labelled.
@@ -245,14 +247,20 @@ first.
 
 ## 8. Plan
 
-1. Inspect Hermes `state.db` on a fleet machine: list tables and columns, and record
-   what is and is not stored for tool calls and usage.
+1. Inspect Hermes `state.db` on a fleet machine: list tables and columns, record what
+   is and is not stored for tool calls and usage, and note how far back history goes.
 2. Write `ledger_schema.sql` and the idempotent migration.
 3. Build whichever of the Hermes importer or proxy capture step 1 shows is sufficient.
-4. Backfill outcomes from the existing `hindsight_label` column.
+4. Backfill: outcomes from the existing `hindsight_label` column, and historical traces
+   from `state.db` if step 1 shows it holds tool calls. Backfilled traces are marked as
+   such, since their cost data may be missing.
 5. Build the report.
-6. Run for a week. Check totals against billing.
-7. Run the compile-coverage test.
+6. Capture for two to four weeks, long enough to see several runs of the longest-period
+   scheduled job. A weekly job appears once in a week of traces. Check totals against
+   billing.
+7. Run the compile-coverage test on the fleet ledger, and on one public trace dataset
+   imported through the OTLP importer. The fleet is small; a second dataset shows
+   whether the result holds elsewhere.
 8. In parallel: capture a sample of OTLP traces from one third-party gateway and one
    sandbox, and record whether tool inputs and outputs are present.
 
