@@ -258,7 +258,7 @@ shared decision models need pooled data that users may not be able to release.
 | Hindsight labelling | Regex, one column | Kept as one weak source among several. |
 | Controlled-Skip Protocol | Phase 0 for the needs-full-agent head | Generalised to every route and model. |
 | Grants and operator execute path | Static grants, snapshot-backed patching | Kept. Route capability manifests extend the grants file. |
-| Four-agent harness (`harness.py`, `l2_shadow.py`, `l2_e2e.py`) | Research, Judge, Report, Operator on a small general model | Proposed: frozen, not extended. Compiled routes replace it as the middle tier. |
+| Four-agent harness (`harness.py`, `l2_shadow.py`, `l2_e2e.py`) | Research, Judge, Report, Operator on a small general model | Decided 2026-11-11: frozen, not extended. Compiled routes replace it as the middle tier. |
 | Adapters | Hermes gate; thin Claude Code, Codex, LangChain wrappers | Become trace importers plus a tool endpoint. |
 
 Current state, for the record: scoring runs in shadow as a batch over captured turns,
@@ -329,7 +329,8 @@ Each phase ends with a measurement that decides whether to continue.
 
 ## 18. Open questions
 
-1. Is the four-agent harness frozen, removed, or kept as an optional route type?
+1. The four-agent harness is frozen. Is its code removed from the package or left in
+   place until routes cover its uses?
 2. What is a task class? Tool-sequence signature is the v1 answer; it will under-merge.
 3. Who writes the per-class verifier: the compiling model, checked against holdouts, or
    a person?
