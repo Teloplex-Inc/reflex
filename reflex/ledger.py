@@ -9,6 +9,7 @@ Spec: docs/TRACE_LEDGER_SPEC.md. Nothing here makes a network call.
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import time
 
@@ -25,6 +26,8 @@ OUTCOME_SOURCES = ("hindsight_regex", "user_correction", "user_accept", "verifie
                    "controlled_skip", "human_audit")
 OUTCOME_LABELS = ("satisfied", "corrected", "failed", "unknown")
 OUTCOME_STRENGTHS = ("outcome", "counterfactual", "behavioral")
+BLOB_PREFIX = '{"blob":'
+_BLOB_NAME = re.compile(r"[0-9a-f]{64}")
 TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
 
 _side_effects = None
@@ -95,7 +98,9 @@ def _store_payload(con, value):
     text = _redact.redact(as_text(_redact.redact_obj(value)))
     raw = text.encode("utf-8")
     digest = hashlib.sha256(raw).hexdigest()
-    if len(raw) <= BLOB_LIMIT:
+    # A payload that itself looks like a blob reference is never stored inline, so a
+    # stored value with that prefix can only be a reference this module wrote.
+    if len(raw) <= BLOB_LIMIT and not text.startswith(BLOB_PREFIX):
         return text, digest
     d = blob_dir(con)
     os.makedirs(d, exist_ok=True)
@@ -108,16 +113,28 @@ def _store_payload(con, value):
     return json.dumps(ref, ensure_ascii=False), digest
 
 
+def _blob_name(stored):
+    """The blob file name in a stored reference, or None. Only a bare sha256 is accepted,
+    so a reference can never name a path outside the blob directory."""
+    if not stored or not stored.startswith(BLOB_PREFIX):
+        return None
+    try:
+        name = json.loads(stored).get("blob")
+    except (ValueError, AttributeError):
+        return None
+    return name if isinstance(name, str) and _BLOB_NAME.fullmatch(name) else None
+
+
 def read_payload(con, stored):
     """Inverse of _store_payload: follow a blob reference if the value is one."""
-    if stored and stored.startswith('{"blob":'):
-        try:
-            ref = json.loads(stored)
-            with open(os.path.join(blob_dir(con), ref["blob"]), "rb") as f:
-                return f.read().decode("utf-8")
-        except (ValueError, KeyError, OSError):
-            return stored
-    return stored
+    name = _blob_name(stored)
+    if name is None:
+        return stored
+    try:
+        with open(os.path.join(blob_dir(con), name), "rb") as f:
+            return f.read().decode("utf-8")
+    except OSError:
+        return stored
 
 
 def _sum_or_none(values):
@@ -237,11 +254,9 @@ def delete_trace(con, trace_id):
     blobs = set()
     for inp, out in con.execute("SELECT input, output FROM spans WHERE trace_id = ?", (trace_id,)):
         for v in (inp, out):
-            if v and v.startswith('{"blob":'):
-                try:
-                    blobs.add(json.loads(v)["blob"])
-                except (ValueError, KeyError):
-                    pass
+            name = _blob_name(v)
+            if name:
+                blobs.add(name)
     con.execute("DELETE FROM traces WHERE trace_id = ?", (trace_id,))
     con.commit()
     for b in blobs:

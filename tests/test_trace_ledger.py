@@ -136,6 +136,21 @@ class LedgerTest(Base):
         self.assertEqual(os.listdir(ledger.blob_dir(self.con)), [])
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM spans").fetchone()[0], 0)
 
+    def test_payload_that_imitates_a_blob_reference_cannot_reach_other_files(self):
+        victim = os.path.join(self.dir, "victim.txt")
+        with open(victim, "w") as f:
+            f.write("keep me")
+        fake = json.dumps({"blob": "../victim.txt", "bytes": 7, "head": ""})
+        ledger.write_trace(self.con, self.trace(), [{"kind": "tool_call", "name": "read_file", "output": fake}])
+        stored = self.con.execute("SELECT output FROM spans").fetchone()[0]
+        # stored as a real blob, so reading it returns the tool's own text, not the victim file
+        self.assertEqual(ledger.read_payload(self.con, stored), fake)
+        ledger.delete_trace(self.con, "t1")
+        self.assertTrue(os.path.exists(victim))
+        # a hand-written row with a traversal name is not followed either
+        self.assertEqual(ledger.read_payload(self.con, fake), fake)
+        self.assertIsNone(ledger._blob_name(fake))
+
     def test_outcomes_are_append_only_and_validated(self):
         ledger.write_trace(self.con, self.trace(), [])
         ledger.add_outcome(self.con, "t1", "hindsight_regex", "satisfied", "behavioral", ts=1)
