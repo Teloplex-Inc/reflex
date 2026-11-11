@@ -145,18 +145,25 @@ def _sum_or_none(values):
     return sum(values)
 
 
-def write_trace(con, trace, spans):
+def write_trace(con, trace, spans, replace=False):
     """Store one trace and its spans. Returns False if the trace_id already exists.
+
+    With replace=True an existing trace is rewritten in place: its row is updated and its
+    spans are replaced, while its outcome rows are kept. Importers whose source can grow
+    after a first import (a session still in progress) use this.
 
     trace: dict with trace_id, source, and any of harness, session_id, session_kind,
            message_id, started_at, ended_at, request, final_output, status, backfilled.
     spans: list of dicts with kind and any of span_id, parent_span_id, name, started_at,
            duration_ms, input, output, the four token fields, cost_usd, cost_basis,
            status, error. Order in the list is the order in the trace.
-    Totals on the trace are computed here from the model-call spans.
+    Totals on the trace are computed here from the model-call spans, unless the trace
+    carries a "totals" dict (the four token fields, cost_usd, cost_basis). A source that
+    knows cost per session rather than per call supplies totals that way.
     """
     tid = trace["trace_id"]
-    if con.execute("SELECT 1 FROM traces WHERE trace_id = ?", (tid,)).fetchone():
+    exists = con.execute("SELECT 1 FROM traces WHERE trace_id = ?", (tid,)).fetchone()
+    if exists and not replace:
         return False
     kind = trace.get("session_kind") or "other"
     if kind not in SESSION_KINDS:
@@ -194,21 +201,36 @@ def write_trace(con, trace, spans):
         basis = "estimate"
     else:
         basis = "reported"
+    given = trace.get("totals")
+    if given is not None:
+        totals = {f: given.get(f) for f in TOKEN_FIELDS}
+        cost = given.get("cost_usd")
+        basis = "unknown" if cost is None else (given.get("cost_basis") or "reported")
 
     request, _ = _store_payload(con, trace.get("request"))
     final, _ = _store_payload(con, trace.get("final_output"))
-    con.execute(
-        "INSERT INTO traces (trace_id, source, harness, session_id, session_kind, message_id, "
-        "started_at, ended_at, request, final_output, status, n_model_calls, n_tool_calls, "
-        "input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, cost_basis, "
-        "backfilled, redaction_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (tid, trace["source"], trace.get("harness") or "unknown", trace.get("session_id"), kind,
-         trace.get("message_id"), trace.get("started_at"), trace.get("ended_at"), request, final,
-         trace.get("status") or "completed", len(model),
-         sum(1 for s in spans if s["kind"] == "tool_call"),
-         totals["input_tokens"], totals["output_tokens"], totals["cache_read_tokens"],
-         totals["cache_write_tokens"], cost, basis, 1 if trace.get("backfilled") else 0,
-         _redact.VERSION))
+    values = (trace["source"], trace.get("harness") or "unknown", trace.get("session_id"), kind,
+              trace.get("message_id"), trace.get("started_at"), trace.get("ended_at"), request, final,
+              trace.get("status") or "completed", len(model),
+              sum(1 for s in spans if s["kind"] == "tool_call"),
+              totals["input_tokens"], totals["output_tokens"], totals["cache_read_tokens"],
+              totals["cache_write_tokens"], cost, basis, 1 if trace.get("backfilled") else 0,
+              _redact.VERSION)
+    if exists:
+        con.execute("DELETE FROM spans WHERE trace_id = ?", (tid,))
+        con.execute(
+            "UPDATE traces SET source=?, harness=?, session_id=?, session_kind=?, message_id=?, "
+            "started_at=?, ended_at=?, request=?, final_output=?, status=?, n_model_calls=?, "
+            "n_tool_calls=?, input_tokens=?, output_tokens=?, cache_read_tokens=?, cache_write_tokens=?, "
+            "cost_usd=?, cost_basis=?, backfilled=?, redaction_version=? WHERE trace_id=?",
+            values + (tid,))
+    else:
+        con.execute(
+            "INSERT INTO traces (trace_id, source, harness, session_id, session_kind, message_id, "
+            "started_at, ended_at, request, final_output, status, n_model_calls, n_tool_calls, "
+            "input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, cost_basis, "
+            "backfilled, redaction_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (tid,) + values)
     con.executemany("INSERT INTO spans VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     return True
 

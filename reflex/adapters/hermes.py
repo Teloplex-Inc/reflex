@@ -7,7 +7,7 @@ import os, json, hashlib, sqlite3, time, urllib.request, math
 
 L1_URL = os.environ.get("REFLEX_L1_URL", "http://localhost:8002/v1/chat/completions")
 L1_MODEL = os.environ.get("REFLEX_L1_MODEL", "reflex-v06")
-LEDGER = os.environ.get("REFLEX_LEDGER", os.path.expanduser("~/.hermes/reflex/ledger.db"))
+LEDGER = os.environ.get("REFLEX_LEDGER") or os.path.expanduser("~/.hermes/reflex/ledger.db")
 LIVE = os.environ.get("REFLEX_LIVE") == "1"
 REVERSIBLE = {"read_files","find_files","web_research","recall_history","run_code","memory_ops"}
 

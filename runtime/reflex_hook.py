@@ -10,7 +10,7 @@ the hook must never break the gateway hot path.
 """
 import sys, json, sqlite3, hashlib, time, os
 
-LEDGER = os.path.expanduser("~/.hermes/reflex/ledger.db")
+LEDGER = os.environ.get("REFLEX_LEDGER") or os.path.expanduser("~/.hermes/reflex/ledger.db")
 MODEL_VERSION = os.environ.get("REFLEX_MODEL_VERSION", "v0.4mt-shadow")
 
 def main():

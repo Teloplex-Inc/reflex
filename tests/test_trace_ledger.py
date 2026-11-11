@@ -328,38 +328,143 @@ class OtlpImportTest(Base):
 
 
 class HermesImportTest(Base):
+    KEY = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+
     def make_state(self):
         p = os.path.join(self.dir, "state.db")
         s = sqlite3.connect(p)
         s.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT, "
-                  "timestamp REAL, active INTEGER)")
-        rows = [
-            (1, "s1", "user", "summarise the repo", 10.0, 1),
-            (2, "s1", "tool", "README contents with key sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", 11.0, 1),
-            (3, "s1", "assistant", "It is a learning layer.", 12.0, 1),
-            (4, "s1", "user", "old inactive message", 13.0, 0),
-            (5, "cron_digest_1", "user", "run the daily digest", 20.0, 1),
+                  "tool_call_id TEXT, tool_calls TEXT, tool_name TEXT, timestamp REAL, finish_reason TEXT, "
+                  "active INTEGER, _compressed_summary INTEGER)")
+        s.execute("CREATE TABLE sessions (id TEXT, source TEXT, model TEXT, input_tokens INTEGER, "
+                  "output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER, "
+                  "estimated_cost_usd REAL, actual_cost_usd REAL)")
+        s.execute("CREATE TABLE session_model_usage (session_id TEXT, model TEXT, task TEXT, input_tokens INTEGER, "
+                  "output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER, "
+                  "estimated_cost_usd REAL, actual_cost_usd REAL)")
+
+        def call(cid, name, args):
+            return json.dumps([{"id": cid, "type": "function", "function": {"name": name, "arguments": args}}])
+
+        wrapped = "[Triggering message id: `99` - use it.]\n\n[tbm3] summarise the repo"
+        m = [  # id, session, role, content, tool_call_id, tool_calls, tool_name, ts, finish, active, summary
+            # s1: two turns; the first makes two model calls and one tool call, the second one model call
+            (1, "s1", "user", wrapped, None, None, None, 10.0, None, 1, 0),
+            (2, "s1", "assistant", "", None, call("c1", "read_file", '{"path": "README.md"}'), None, 11.0, "tool_calls", 1, 0),
+            (3, "s1", "tool", "README with key " + self.KEY, "c1", None, "read_file", 12.5, None, 1, 0),
+            (4, "s1", "assistant", "It is a learning layer.", None, None, None, 13.0, "stop", 1, 0),
+            (5, "s1", "user", "old inactive message", None, None, None, 14.0, None, 0, 0),
+            (6, "s1", "user", "thanks, shorter please", None, None, None, 15.0, None, 1, 0),
+            (7, "s1", "assistant", "A learning layer.", None, None, None, 16.0, "stop", 1, 0),
+            (8, "s1", "user", "summary of earlier turns", None, None, None, 17.0, None, 1, 1),
+            # a scheduled session: one turn, a tool call that never got a result
+            (9, "job_a_1", "user", "run the daily digest", None, None, None, 20.0, None, 1, 0),
+            (10, "job_a_1", "assistant", "", None, call("c2", "terminal", '{"command": "digest"}'), None, 21.0, "tool_calls", 1, 0),
+            (11, "job_a_1", "session_meta", None, None, None, None, 22.0, None, 1, 0),
+            # a session with no usage rows at all
+            (12, "s3", "user", "hello", None, None, None, 30.0, None, 1, 0),
+            (13, "s3", "assistant", "hi", None, None, None, 31.0, "stop", 1, 0),
         ]
-        s.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?)", rows)
+        s.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?)", m)
+        s.executemany("INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?)", [
+            ("s1", "discord", "big-model", 1, 1, 0, 0, None, None),      # overridden by the usage rows
+            ("job_a_1", "cron", "big-model", 500, 50, 0, 0, 0.02, None),
+            ("s3", "cli", "big-model", None, None, None, None, None, None),
+            ("ghost", "cli", "big-model", 100, 10, 0, 0, None, 0.5),     # usage, but no messages
+        ])
+        s.executemany("INSERT INTO session_model_usage VALUES (?,?,?,?,?,?,?,?,?)", [
+            ("s1", "big-model", "chat", 3000, 300, 900, 0, 0.10, 0.09),
+            ("s1", "small-model", "compression", 301, 30, 0, 0, 0.01, 0.01),
+        ])
         s.commit()
         s.close()
         return p
 
-    def test_turn_level_traces(self):
+    def rows(self):
+        return self.con.execute(
+            "SELECT session_id, request, session_kind, status, n_model_calls, n_tool_calls, input_tokens, "
+            "output_tokens, cache_read_tokens, cost_usd, cost_basis, backfilled, final_output, message_id "
+            "FROM traces ORDER BY started_at").fetchall()
+
+    def test_traces_tools_and_cost(self):
+        st = hermes.import_state(self.con, self.make_state())
+        self.assertEqual((st["written"], st["updated"], st["sessions"]), (4, 0, 3))
+        self.assertEqual(st["sessions_without_turns"], 1)
+        self.assertAlmostEqual(st["cost_usd_without_turns"], 0.5)
+        t1, t2, cron, bare = self.rows()
+
+        # wrappers stripped; two model calls and one tool call
+        self.assertEqual(t1[:6], ("s1", "summarise the repo", "interactive", "completed", 2, 1))
+        self.assertEqual((t1[12], t1[13]), ("It is a learning layer.", "1"))
+        self.assertEqual(t2[:6], ("s1", "thanks, shorter please", "interactive", "completed", 1, 0))
+        # session figures split 2:1 across its turns, adding up exactly, and marked as an estimate
+        self.assertEqual((t1[6] + t2[6], t1[7] + t2[7], t1[8] + t2[8]), (3301, 330, 900))
+        self.assertEqual((t1[6], t2[6]), (2201, 1100))
+        self.assertAlmostEqual(t1[9] + t2[9], 0.10)
+        self.assertAlmostEqual(t1[9], 0.10 * 2 / 3)
+        self.assertEqual((t1[10], t2[10], t1[11]), ("estimate", "estimate", 0))
+
+        # one-turn session: the session's own figures; only an estimated cost exists
+        self.assertEqual(cron[:6], ("job_a_1", "run the daily digest", "cron", "interrupted", 1, 1))
+        self.assertEqual(cron[6:8], (500, 50))
+        self.assertAlmostEqual(cron[9], 0.02)
+        self.assertEqual(cron[10], "estimate")
+
+        # no usage recorded: unknown, never zero
+        self.assertEqual(bare[6:12], (None, None, None, None, "unknown", 1))
+
+    def test_tool_spans_join_results_by_call_id(self):
+        hermes.import_state(self.con, self.make_state())
+        spans = self.con.execute(
+            "SELECT s.kind, s.name, s.input, s.output, s.status, s.duration_ms, s.side_effect FROM spans s "
+            "JOIN traces t USING (trace_id) WHERE t.request = 'summarise the repo' ORDER BY s.seq").fetchall()
+        self.assertEqual([s[0] for s in spans], ["model_call", "tool_call", "model_call"])
+        self.assertEqual(spans[1][1:3], ("read_file", '{"path": "README.md"}'))
+        self.assertTrue(spans[1][3].startswith("README with key [REDACTED:"))
+        self.assertEqual(spans[1][4:], ("ok", 1500, "read"))
+        self.assertEqual(spans[0][1], "big-model")
+        pending = self.con.execute("SELECT s.name, s.status, s.side_effect FROM spans s JOIN traces t USING (trace_id) "
+                                   "WHERE t.session_id = 'job_a_1' AND s.kind = 'tool_call'").fetchone()
+        self.assertEqual(pending, ("terminal", "interrupted", "unknown"))
+        self.assertNotIn(self.KEY, self.all_ledger_text())
+
+    def test_reimport_refreshes_in_place_and_keeps_outcomes(self):
         state = self.make_state()
-        self.assertEqual(hermes.import_state(self.con, state), (2, 0))
-        rows = self.con.execute("SELECT message_id, session_kind, status, backfilled, input_tokens, final_output, "
-                                "n_model_calls, n_tool_calls FROM traces ORDER BY started_at").fetchall()
-        self.assertEqual(rows[0], ("1", "interactive", "completed", 1, None, "It is a learning layer.", 1, 1))
-        self.assertEqual(rows[1][:3], ("5", "cron", "interrupted"))
-        self.assertEqual(hermes.import_state(self.con, state), (0, 2))
-        self.assertNotIn("sk-ant-api03", self.all_ledger_text())
+        hermes.import_state(self.con, state)
+        tid = self.con.execute("SELECT trace_id FROM traces WHERE session_id = 'job_a_1'").fetchone()[0]
+        ledger.add_outcome(self.con, tid, "user_correction", "corrected", "outcome")
+        self.con.commit()
+        # the job finishes after the first import
+        s = sqlite3.connect(state)
+        s.execute("INSERT INTO messages VALUES (20, 'job_a_1', 'tool', 'sent', 'c2', NULL, 'terminal', 23.0, NULL, 1, 0)")
+        s.execute("INSERT INTO messages VALUES (21, 'job_a_1', 'assistant', 'digest sent', NULL, NULL, NULL, 24.0, 'stop', 1, 0)")
+        s.commit()
+        s.close()
+        st = hermes.import_state(self.con, state)
+        self.assertEqual((st["written"], st["updated"]), (0, 4))
+        row = self.con.execute("SELECT status, n_model_calls, final_output FROM traces WHERE trace_id = ?",
+                               (tid,)).fetchone()
+        self.assertEqual(row, ("completed", 2, "digest sent"))
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM traces").fetchone()[0], 4)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM spans WHERE trace_id = ?", (tid,)).fetchone()[0], 3)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM outcomes WHERE trace_id = ?", (tid,)).fetchone()[0], 1)
+
+    def test_works_on_a_minimal_messages_table(self):
+        p = os.path.join(self.dir, "min.db")
+        s = sqlite3.connect(p)
+        s.execute("CREATE TABLE messages (id INTEGER, session_id TEXT, role TEXT, content TEXT, timestamp REAL)")
+        s.executemany("INSERT INTO messages VALUES (?,?,?,?,?)",
+                      [(1, "a", "user", "hi", 1.0), (2, "a", "assistant", "hello", 2.0)])
+        s.commit()
+        s.close()
+        self.assertEqual(hermes.import_state(self.con, p)["written"], 1)
+        self.assertEqual(self.rows()[0][3:5], ("completed", 1))
 
     def test_inspect_is_safe_to_paste(self):
         text = hermes.inspect(self.make_state())
         self.assertIn("TABLE messages", text)
         self.assertIn("role=tool", text)
-        self.assertNotIn("sk-ant-api03", text)
+        self.assertNotIn(self.KEY, text)
 
     def test_unexpected_schema_is_reported(self):
         p = os.path.join(self.dir, "odd.db")
@@ -369,6 +474,11 @@ class HermesImportTest(Base):
         s.close()
         with self.assertRaises(RuntimeError):
             hermes.import_state(self.con, p)
+
+    def test_share_adds_up(self):
+        self.assertEqual(hermes._share(10, [1, 1, 1]), [4, 3, 3])
+        self.assertEqual(hermes._share(7, [0, 0]), [7, 0])
+        self.assertEqual(hermes._share(None, [1, 2]), [None, None])
 
 
 class ReportTest(Base):
@@ -418,6 +528,7 @@ class ReportTest(Base):
         b = report.render(report.build(self.con))
         self.assertEqual(a, b)
         self.assertIn("compile candidates: 1 clusters", a)
+        self.assertEqual(report.build(self.con)["unclassified_tools"], {"terminal": 5})
 
     def test_empty_ledger(self):
         self.assertIn("no traces yet", report.render(report.build(self.con)))

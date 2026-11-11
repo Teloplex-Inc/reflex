@@ -9,7 +9,7 @@ import os, sys, json, sqlite3, time, hashlib, re, urllib.request, subprocess
 
 CSP_ON = os.environ.get("CSP_ON") == "1"
 L2_URL = os.environ.get("REFLEX_L2_URL", "http://localhost:8001/v1/chat/completions")
-LEDGER = os.path.expanduser("~/.hermes/reflex/ledger.db")
+LEDGER = os.environ.get("REFLEX_LEDGER") or os.path.expanduser("~/.hermes/reflex/ledger.db")
 MAX_PER_TICK = 3
 ELIGIBLE_TOOLS = {"read_files": "read_file", "find_files": "search_files",
                   "web_research": None, "recall_history": None}  # tool name or None (LLM-only)

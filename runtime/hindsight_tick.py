@@ -7,8 +7,8 @@ Run by nightly-trainer cron every tick, cheap. Idempotent.
 """
 import sqlite3, re, time, os
 
-LEDGER = os.path.expanduser("~/.hermes/reflex/ledger.db")
-STATE = "/home/hermes/.hermes/state.db"
+LEDGER = os.environ.get("REFLEX_LEDGER") or os.path.expanduser("~/.hermes/reflex/ledger.db")
+STATE = os.environ.get("REFLEX_HERMES_STATE") or os.path.expanduser("~/.hermes/state.db")
 
 CORRECTION = re.compile(
     r"\b(still not|didn'?t work|that'?s (?:wrong|not it)|not what i asked|try again|"

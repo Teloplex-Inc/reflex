@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GRANTS = json.load(open(os.path.join(HERE, "..", "reflex", "grants.json")
                         if os.path.exists(os.path.join(HERE, "..", "reflex", "grants.json"))
                         else os.path.join(os.path.dirname(HERE), "grants.json")))
-LEDGER = os.path.expanduser("~/.hermes/reflex/ledger.db")
+LEDGER = os.environ.get("REFLEX_LEDGER") or os.path.expanduser("~/.hermes/reflex/ledger.db")
 SNAPDIR = os.path.expanduser("~/.hermes/reflex/exec_snapshots")
 
 ALLOWED_ROOTS = ["/home/hermes/repos/", "/tmp/"]  # L0 whitelist; nothing outside is ever touched

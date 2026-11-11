@@ -140,13 +140,31 @@ One schema, three writers. Each is a small module under `reflex/importers/`.
 
 Reads Hermes' `state.db`, as `capture.py` does today.
 
-Known from current code: a `messages` table with `id`, `session_id`, `role`, `content`,
-`timestamp` and `active`.
+Verified on a fleet machine on 2026-11-11 with `reflex inspect-hermes`: `state.db` holds
+everything needed, so Hermes does not need proxy capture.
 
-**Not yet verified:** whether `state.db` holds tool calls, tool results and token usage,
-and in what form. Step 1 of the plan (section 8) is to inspect the schema on a fleet
-machine. If it does not hold them, the proxy source below becomes the primary one for
-Hermes.
+- `messages` carries `tool_calls` (JSON) on assistant messages, and `tool_call_id` and
+  `tool_name` on tool messages.
+- `sessions` and `session_model_usage` carry token counts with `estimated_cost_usd` and
+  `actual_cost_usd`, per session and per session, model and task.
+
+Tokens and cost are recorded per session, not per model call. The importer therefore
+writes them on the trace, not on spans:
+
+- a session with one user turn (most scheduled jobs) gets the session's figures exactly;
+- a session with several turns has them split across turns in proportion to each turn's
+  number of model calls, and every such trace is marked `estimate`.
+
+Importing again rewrites each trace in place and keeps its outcomes, so sessions still
+running at the last import are brought up to date.
+
+Still unverified:
+
+- whether `input_tokens` includes cached tokens;
+- what `active = 0` covers. Inactive and compressed-summary rows are skipped, so a
+  compacted session can show fewer steps than it ran, though its cost is whole;
+- what `effect_disposition` holds. It may be Hermes' own side-effect class and could
+  feed `side_effect` in place of the static table.
 
 ### 4.2 Proxy capture
 
@@ -278,13 +296,22 @@ Built and covered by `tests/` (run `python -m unittest discover -s tests`):
 | Hermes schema inspector and provisional importer | `reflex/importers/hermes.py` |
 | Report | `reflex/report.py` |
 
-Tested only on synthetic data so far. Not built: the compile-coverage test (section 6.1),
-retention settings, and a gateway that calls `record_exchange`.
+First fleet run, 2026-11-11, with the earlier turn-level importer: tests pass on Linux,
+the migration left the existing tables and ticks working, and 5,661 traces were imported
+(4,028 scheduled, 1,633 interactive). 59 of 286 clusters recur and cover 95.3% of traces.
+Token and cost columns were empty in that run, so it says nothing yet about cost. The
+full importer has since been built and has run on synthetic data only.
+
+Not built: the compile-coverage test (section 6.1), retention settings, and a gateway
+that calls `record_exchange`.
 
 Known limits of this version:
 
-- The Hermes importer is turn-level only: it records no tool arguments, token counts or
-  cost, and names non-assistant steps after their role. It needs the schema dump below.
+- Hermes cost is exact for one-turn sessions and an estimate for multi-turn sessions
+  (section 4.1). Sessions that have usage but no user turn are counted and reported by
+  `import-hermes`, not imported.
+- A cluster that uses a general-purpose tool such as a shell cannot be classified by tool
+  name alone. The candidate rule will need to look at the command, not only the tool.
 - The OTLP attribute names in `otlp.ATTRS` are candidates, not checked against one
   pinned convention version.
 - Proxy import understands OpenAI-style chat requests. A new trace starts at each new
@@ -295,18 +322,22 @@ Known limits of this version:
 Checklist for the fleet, in order:
 
 1. `python -m unittest discover -s tests` passes on the fleet machine.
-2. `python -m reflex inspect-hermes` and send back the output. It is redacted and
-   truncated, but read it before sharing. This decides importer versus proxy capture.
+2. `python -m reflex inspect-hermes` and send back the output. Done 2026-11-11.
 3. `python -m reflex migrate`, then confirm the existing ticks still run and existing
-   tables are unchanged.
-4. `python -m reflex import-hermes`, `backfill-outcomes`, then `report`. This gives a
-   first recurrence picture from request text alone.
-5. Wire `reflex.importers.proxy.record_exchange` into the model gateway, capture for a
-   day, run `import-proxy`, and compare token totals with the provider's billing.
-6. Add the fleet's real tool names to `reflex/side_effects.json`.
-7. Plant fake secrets in a test session and confirm none appear in the ledger, the
-   blobs or the capture log.
-8. Report anything the importers skip, mislabel or split wrongly.
+   tables are unchanged. Done 2026-11-11.
+4. Pull, then `python -m reflex import-hermes`, `backfill-outcomes`, then `report`.
+   Existing traces are refreshed in place with tool calls, tokens and cost.
+5. Compare the ledger's total cost with the sum of `actual_cost_usd` in `state.db`, and
+   that with the provider's billing for the same period.
+6. The report now lists tools with no side-effect class. Add the fleet's tool names to
+   `reflex/side_effects.json`.
+7. Plant fake secrets in a test session and confirm none appear in the ledger or blobs.
+8. Report anything the importer skips, mislabels or splits wrongly, and answer the three
+   unverified points in section 4.1.
+
+All ticks and the CLI now read the ledger path from `REFLEX_LEDGER` and the state path
+from `REFLEX_HERMES_STATE`, with the same defaults as before. Set them in one place on
+the fleet so no script can pick a different file.
 
 ## 10. Open questions
 

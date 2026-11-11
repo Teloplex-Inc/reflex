@@ -7,7 +7,7 @@ import os, sys, json, sqlite3, time, hashlib, urllib.request, math, re
 
 L1_URL = os.environ.get("REFLEX_L1_URL", "http://localhost:8002/v1/chat/completions")
 MODEL = "reflex-v05"
-LEDGER = os.path.expanduser("~/.hermes/reflex/ledger.db")
+LEDGER = os.environ.get("REFLEX_LEDGER") or os.path.expanduser("~/.hermes/reflex/ledger.db")
 BATCH = 8
 
 SKILLGATE_OPTS = ["run_commands","read_files","find_files","edit_files","load_skill",

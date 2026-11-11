@@ -6,7 +6,7 @@ USAGE = """reflex: the learning layer for agent stacks
 trace ledger
   python -m reflex migrate [--ledger PATH]          create or update the ledger schema
   python -m reflex inspect-hermes [STATE_DB]        describe Hermes' state.db (safe to paste)
-  python -m reflex import-hermes [STATE_DB]         turn-level traces from Hermes (provisional)
+  python -m reflex import-hermes [STATE_DB]         traces from Hermes: tool calls, tokens and cost
   python -m reflex import-proxy CAPTURE.jsonl       traces from a model-gateway capture log
   python -m reflex import-otlp TRACES.jsonl         traces from an OpenTelemetry JSON export
   python -m reflex backfill-outcomes                copy existing hindsight labels into outcomes
@@ -19,6 +19,7 @@ decision models
   python -m reflex deploy-gate INCUMBENT CANDIDATE  never-deploy-worse check on two eval files
 
 The ledger path is --ledger, else $REFLEX_LEDGER, else ~/.hermes/reflex/ledger.db.
+The Hermes state path is the argument, else $REFLEX_HERMES_STATE, else ~/.hermes/state.db.
 """
 
 
@@ -63,8 +64,13 @@ def main():
     if cmd == "import-hermes":
         from reflex.importers import hermes
         con = ledger.connect(path)
-        written, skipped = hermes.import_state(con, rest[0] if rest else None)
-        print("hermes: %d traces written, %d already present (turn-level, no token counts)" % (written, skipped))
+        st = hermes.import_state(con, rest[0] if rest else None)
+        print("hermes: %d traces written, %d refreshed, from %d sessions" % (
+            st["written"], st["updated"], st["sessions"]))
+        if st["sessions_without_turns"]:
+            print("hermes: %d sessions have usage but no user turn to attach it to; "
+                  "$%.2f of cost is not in the ledger" % (
+                      st["sessions_without_turns"], st["cost_usd_without_turns"]))
         return 0
     if cmd == "import-proxy" and rest:
         from reflex.importers import proxy

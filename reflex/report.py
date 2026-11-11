@@ -76,11 +76,13 @@ def build(con, min_count=MIN_COUNT, top=20):
     traces = con.execute(
         "SELECT trace_id, session_id, session_kind, request, input_tokens, output_tokens, "
         "cache_read_tokens, cost_usd, backfilled FROM traces ORDER BY trace_id").fetchall()
-    tools, effects = {}, {}
+    tools, effects, unclassified = {}, {}, {}
     for tid, name, effect in con.execute(
             "SELECT trace_id, name, side_effect FROM spans WHERE kind = 'tool_call' ORDER BY trace_id, seq"):
         tools.setdefault(tid, []).append(name)
         effects.setdefault(tid, set()).add(effect or "unknown")
+        if (effect or "unknown") == "unknown":
+            unclassified[name or "?"] = unclassified.get(name or "?", 0) + 1
     # one label per trace: its most recent outcome row
     latest = {}
     for tid, label, strength in con.execute(
@@ -173,6 +175,7 @@ def build(con, min_count=MIN_COUNT, top=20):
             "candidate_token_share_pct": _pct(sum(r["tokens"] for r in candidates), total_tokens),
         },
         "clusters": rows[:top] if top else rows,
+        "unclassified_tools": dict(sorted(unclassified.items(), key=lambda kv: (-kv[1], kv[0]))),
         "placeholders": {"min_count": min_count, "min_satisfied": MIN_SATISFIED,
                          "head_tokens": HEAD_TOKENS, "template_tokens": TEMPLATE_TOKENS},
     }
@@ -221,6 +224,10 @@ def render(rep):
         ]
         if c["example"]:
             out.append("      e.g. %s" % c["example"])
+    if rep["unclassified_tools"]:
+        out += ["", "Tools with no side-effect class (add them to reflex/side_effects.json; until then",
+                "their clusters cannot be candidates):"]
+        out += ["  %-28s %s calls" % (k, _n(v)) for k, v in list(rep["unclassified_tools"].items())[:25]]
     out += ["", "Thresholds are placeholders (%s). Clustering under-merges, so recurring shares are a floor." % (
         ", ".join("%s=%s" % kv for kv in rep["placeholders"].items()))]
     return "\n".join(out)

@@ -3,7 +3,7 @@
 One report per run; written to the ledger + printed."""
 import sqlite3, os, json, time
 
-LEDGER = os.path.expanduser("~/.hermes/reflex/ledger.db")
+LEDGER = os.environ.get("REFLEX_LEDGER") or os.path.expanduser("~/.hermes/reflex/ledger.db")
 
 def main():
     led = sqlite3.connect(LEDGER, timeout=10)
