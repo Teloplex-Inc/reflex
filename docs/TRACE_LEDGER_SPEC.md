@@ -247,7 +247,11 @@ Two further read-only views, in `reflex/analyze.py`:
   from sessions that made one model call. Carried content is each message and tool
   result weighted by the model calls that follow it in its session. Both are estimates:
   four bytes a token, and nothing assumed dropped, so compaction makes the true carried
-  share lower.
+  share lower. `--job JOB` and `--since YYYY-MM-DD` (UTC) limit it to one scheduled job's
+  sessions or to sessions begun from a date, to compare jobs or to measure a
+  configuration change before and after. It also prints the input per model call that
+  ledger content does not explain: an upper bound on the fixed prompt where no session
+  made exactly one call.
 
 `python -m reflex guard-replay` tests the smallest kind of route (`reflex/guards.py`). A
 guard names the observation a scheduled job makes and what in it means there is work.
@@ -257,11 +261,36 @@ skipped that did report something. It runs no command and writes nothing. It can
 show that the model would have found nothing beyond what the observation shows, so
 false skips and missed savings are listed for a person to check.
 
+A guard can also be tried live without stopping anything (shadow). The guard names a
+`check` command that makes the observation itself. `python -m reflex guard-check ID`,
+scheduled as a script with no model a minute or two before the job, runs that command and
+appends wake or skip and the reason to a log; it stores none of the command's output.
+The command runs only if the shell rules prove it read-only, through the system shell
+and with a 30 second limit. Refused, failed, timed out or empty all mean wake.
+`python -m reflex guard-shadow` pairs each finished run with the last decision made in
+the 15 minutes before it started and prints the replay's table. Making skips real is a
+separate step, not built: it needs a way to cancel a scheduled run, and the shadow
+record to justify it.
+
 On the fleet, 2026-11-11: the fixed prompt is about 44,000 tokens (one-call sessions,
 a small sample of 7), sent on every model call. Content held in the ledger accounts for
 at most 32.4% of the input of multi-call sessions; shell and file-read results are the
 largest carried items after model output. Two scheduled jobs profiled ended `[SILENT]`
 in 93% and 96% of runs, at about 90,000 tokens a run, after one fixed look at a file.
+
+Guard replay on the fleet, 2026-11-12 (five guards, written by the fleet's agents):
+
+- A guard fits a job that makes one fixed observation and goes silent when it shows no
+  work. On the outreach job the guard skipped 824 of 1,048 runs with one false skip (a
+  run that wrote "nothing to do" in place of `[SILENT]`), 71.7% of the job's tokens.
+- A guard keyed on a final state saves nothing while the job sits in another quiet
+  state: the quant job's guard skipped 0 of 110 runs, though 108 of them ended silent.
+- A guard does not fit an open-ended loop. On the three working loops every skip was a
+  false skip (103 of 103). Those runs have several sources of work besides the observed
+  queue file, and they end with a report, never `[SILENT]`.
+- On four of the five jobs, between 20% and 96% of past runs never made the guard's observation in a form
+  the pattern matched. A replay counts those as wake-ups, so it understates what a
+  guard that makes the observation itself would skip.
 
 ### 6.1 The compile-coverage test
 

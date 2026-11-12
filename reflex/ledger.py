@@ -83,6 +83,12 @@ def _load_side_effects():
         _side_effects = {k: v for k, v in data.items() if not k.startswith("_")}
 
 
+def shell_class(command):
+    """"read" if the shell rules prove a command read-only, else "unknown"."""
+    _load_side_effects()
+    return shell_effect.classify(command, _shell.get("read_commands") or {})
+
+
 def shell_command(tool_name, tool_input):
     """The command a shell tool call runs, or None if the tool is not a shell tool."""
     _load_side_effects()

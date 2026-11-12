@@ -679,6 +679,20 @@ class AnalyzeTest(Base):
         self.assertIn("content in the ledger accounts for about 375 tokens", text)
         row = [l for l in text.splitlines() if l.strip().startswith("tool result: terminal")][0].split()
         self.assertEqual(row[3:], ["300", "4.5%", "1,200"])
+        self.assertIn("about 1,037 tokens a model call, over 6 calls", text)
+
+    def test_context_for_one_job_or_since_a_date(self):
+        from reflex import analyze
+        self.fill()
+        text = analyze.context(self.con, job="cron_beat")
+        self.assertIn("REFLEX CONTEXT for job cron_beat", text)
+        self.assertIn("Carried content, 3 sessions", text)
+        self.assertNotIn("interactive", text)          # the one-call session is not this job's
+        self.assertNotIn("left out", text)
+        text = analyze.context(self.con, since=1.0)    # runs start at 0, 1 and 2 seconds
+        self.assertIn("since 1970-01-01", text)
+        self.assertIn("Carried content, 2 sessions with two or more model calls, 4,400 input tokens", text)
+        self.assertIn("Carried content, 0 sessions", analyze.context(self.con, job="cron_nope"))
 
 
 class GuardReplayTest(Base):
@@ -739,9 +753,73 @@ class GuardReplayTest(Base):
                     [{"id": "x", "job": "j", "observe": obs, "work_when_output_matches": "a",
                       "skip_when_output_matches": "b"}],
                     [{"id": "x", "job": "j", "observe": {"command": "ls"}, "work_when_output_matches": "a"}],
-                    [{"id": "x", "job": "j", "observe": obs, "work_when_output_matches": "a", "run": "rm -rf /"}]):
+                    [{"id": "x", "job": "j", "observe": obs, "work_when_output_matches": "a", "run": "rm -rf /"}],
+                    [{"id": "x", "job": "j", "observe": obs, "work_when_output_matches": "a", "check": ["ls"]}]):
             with self.assertRaises(RuntimeError):
                 guards.load_guards(self.guards_file(bad))
+
+    def test_check_runs_only_read_only_commands_and_wakes_when_unsure(self):
+        from reflex import guards
+        g = {"id": "new-rows", "job": "cron_queue", "observe": {"tool": "terminal"},
+             "work_when_output_matches": r"\| *new *\|", "check": "cat clients/onboarding-queue.md"}
+        ran = []
+
+        def shows(code, text):
+            return lambda command: (ran.append(command), (code, text))[1]
+
+        self.assertEqual(guards.decide(g, shows(0, "| 1 | done |")), ("skip", "output shows no work"))
+        self.assertEqual(guards.decide(g, shows(0, "| 2 | new |")), ("wake", "output shows work"))
+        self.assertEqual(guards.decide(g, shows(1, "")), ("wake", "check exited 1"))
+        self.assertEqual(guards.decide(g, shows(0, " \n")), ("wake", "check printed nothing"))
+        self.assertEqual(len(ran), 4)
+
+        def fails(command):
+            raise OSError("no shell")
+        self.assertEqual(guards.decide(g, fails), ("wake", "check could not run: OSError"))
+        # anything the shell rules cannot prove read-only is never run
+        for command in ("git pull && cat q.md", "cat q.md > out", "python3 check.py", "cat $(ls)",
+                        "rm -rf /", "cat q.md; rm q.md"):
+            got = guards.decide(dict(g, check=command), shows(0, "| 1 | done |"))
+            self.assertEqual(got, ("wake", "check is not provably read-only, so it was not run"))
+        self.assertEqual(len(ran), 4)
+        self.assertEqual(guards.decide({k: v for k, v in g.items() if k != "check"}, shows(0, "x"))[0], "wake")
+
+    def test_shadow_decisions_are_compared_with_the_runs_that_followed(self):
+        from reflex import guards
+        self.fill()   # runs start at 0..5 seconds; push them apart so each has its own decision
+        for i in range(6):
+            self.con.execute("UPDATE traces SET started_at = ? WHERE trace_id = ?", (10000.0 * (i + 1), "g%d" % i))
+        self.con.commit()
+        g = {"id": "new-rows", "job": "cron_queue", "observe": {"tool": "terminal"},
+             "work_when_output_matches": r"\| *new *\|", "check": "cat clients/onboarding-queue.md"}
+        path, log = self.guards_file([g]), os.path.join(self.dir, "shadow.jsonl")
+        with self.assertRaisesRegex(RuntimeError, "no guard with id"):
+            guards.shadow_check("nope", path, log)
+        # one check a minute before each of runs 1 to 4; none before run 5; run 0 predates the log
+        for i, seen in ((1, "| 1 | done |"), (2, "| 2 | new |"), (3, "| 1 | done |"), (4, "| 3 | new |")):
+            e = guards.shadow_check("new-rows", path, log, run=lambda c, s=seen: (0, s), now=10000.0 * (i + 1) - 60)
+            self.assertEqual(e["job"], "cron_queue")
+        with open(log, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(len(lines), 4)
+        self.assertNotIn("done", lines[0].replace("output shows no work", ""))   # the output is not stored
+        r = guards.replay(self.con, path, shadow=True, log=log)[0]
+        self.assertEqual({k: v["runs"] for k, v in r["cells"].items()},
+                         {"skip_silent": 1, "false_skip": 1, "wake_silent": 1, "wake_work": 1, "no_observation": 1})
+        self.assertEqual(r["decisions"], {"wake": 2, "skip": 2})
+        text = guards.render([r])
+        self.assertIn("shadow decisions logged: 2 wake, 2 skip", text)
+        self.assertIn("no decision in the 15 min before the run", text)
+        self.assertIn("false skip g3", text)
+        self.assertIn("A shadow check stops nothing", text)
+        # a guard whose job has not run since its first decision says so
+        with open(log, "a", encoding="utf-8") as f:
+            f.write("not json\n")
+        g2 = dict(g, id="idle", job="cron_gone")
+        guards.shadow_check("idle", self.guards_file([g, g2]), log, run=lambda c: (0, "x"), now=99.0)
+        text = guards.render(guards.replay(self.con, self.guards_file([g, g2]), shadow=True, log=log))
+        self.assertIn("GUARD idle on cron_gone: 0 finished runs\n  shadow decisions logged: 0 wake, 1 skip\n"
+                      "  no finished run of that job since the first decision", text)
 
 
 def by_verdict(rep, verdict):

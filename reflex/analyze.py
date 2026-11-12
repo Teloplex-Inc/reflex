@@ -1,13 +1,15 @@
 """Two read-only views of the ledger, for deciding what to build.
 
     python -m reflex job JOB        everything one scheduled job does, to write a route from
-    python -m reflex context        what fills the prompt: fixed overhead and carried content
+    python -m reflex context [--job JOB] [--since YYYY-MM-DD]
+                                    what fills the prompt: fixed overhead and carried content
 
 Neither calls a model or changes anything. Both print stored text, which is redacted,
 but read the output before sharing it: it holds real requests, commands and replies.
 """
 import json
 import statistics
+import time
 
 from reflex import ledger
 from reflex.report import MAX_CONTEXT, job_name, normalise, signature
@@ -125,8 +127,9 @@ def _size(length, blob_ref):
     return length or 0
 
 
-def context(con):
-    """What the model is sent. Two measurements:
+def context(con, job=None, since=None):
+    """What the model is sent: for all sessions, or only those of one scheduled job, or
+    only those that began at or after `since` (seconds since 1970). Two measurements:
 
     fixed prompt: input tokens of sessions that made exactly one model call. Nothing has
     been carried yet, so this is the system prompt, tool definitions and the request.
@@ -140,6 +143,11 @@ def context(con):
     for tid, sid, kind, started, request, inp, n_model in con.execute(
             "SELECT trace_id, session_id, session_kind, started_at, length(request), input_tokens, "
             "n_model_calls FROM traces WHERE session_id IS NOT NULL ORDER BY session_id, started_at, trace_id"):
+        if sid not in sessions:   # a session is in or out as a whole, by its first turn
+            if job is not None and (kind != "cron" or job_name(sid) != job):
+                continue
+            if since is not None and (started is None or started < since):
+                continue
         s = sessions.setdefault(sid, {"kind": kind, "traces": [], "input": 0, "known": True, "calls": 0})
         s["traces"].append((tid, request or 0))
         s["calls"] += n_model or 0
@@ -155,7 +163,7 @@ def context(con):
         spans.setdefault(tid, []).append((kind, name, _size(out_len, out_blob)))
 
     single = {}
-    carried, raw, used_input, used, skipped = {}, {}, 0, 0, 0
+    carried, raw, used_input, used, skipped, used_calls = {}, {}, 0, 0, 0, 0
     for s in sessions.values():
         if not s["known"] or not s["calls"]:
             continue
@@ -167,6 +175,7 @@ def context(con):
             continue
         used += 1
         used_input += s["input"]
+        used_calls += s["calls"]
         done = 0   # model calls made so far in the session
         for tid, request_len in s["traces"]:
             items = [("user message", request_len)]
@@ -185,7 +194,9 @@ def context(con):
                 carried[cat] = carried.get(cat, 0) + sz * (s["calls"] - done)
                 raw[cat] = raw.get(cat, 0) + sz
 
-    out = ["REFLEX CONTEXT", "", "Fixed prompt (input tokens of sessions that made one model call):"]
+    title = "REFLEX CONTEXT" + (" for job %s" % job if job else "") + (
+        time.strftime(" since %Y-%m-%d", time.gmtime(since)) if since is not None else "")
+    out = [title, "", "Fixed prompt (input tokens of sessions that made one model call):"]
     if not single:
         out.append("  no such sessions in the ledger")
     for kind, values in sorted(single.items()):
@@ -202,7 +213,9 @@ def context(con):
         out += [
             "  content in the ledger accounts for about %s tokens, %.1f%% of that input" % (
                 _n(est), 100.0 * est / used_input),
-            "  the rest is the fixed prompt sent again on every call, and anything the ledger does not hold",
+            "  the rest is the fixed prompt sent again on every call, and anything the ledger does not hold:",
+            "  about %s tokens a model call, over %s calls" % (
+                _n(max(used_input - est, 0) // used_calls), _n(used_calls)),
             "", "  %-34s %16s %8s %14s" % ("source", "est. tokens sent", "share", "bytes produced"),
         ]
         for cat, v in _top(carried, 20):

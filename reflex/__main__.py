@@ -15,7 +15,10 @@ trace ledger
   python -m reflex guard-replay [GUARDS.json]       what a skip-if-nothing-to-do check would have saved
   python -m reflex shell-commands [--top N]         which shell commands run, and how each is classed
   python -m reflex job JOB [--samples N]            everything one scheduled job does, to write a route from
-  python -m reflex context                          what fills the prompt: fixed overhead and carried content
+  python -m reflex guard-check ID [GUARDS.json]     run one guard's read-only check; log wake or skip
+  python -m reflex guard-shadow [GUARDS.json]       compare the logged decisions with what the runs said
+  python -m reflex context [--job JOB] [--since YYYY-MM-DD]
+                                                    what fills the prompt: fixed overhead and carried content
   python -m reflex report [--json] [--min-count N]  where the tokens go and which work recurs
 
 decision models
@@ -27,6 +30,7 @@ decision models
 The ledger path is --ledger, else $REFLEX_LEDGER, else ~/.hermes/reflex/ledger.db.
 The verifiers file is the argument, else $REFLEX_VERIFIERS, else ~/.hermes/reflex/verifiers.json.
 The guards file is the argument, else $REFLEX_GUARDS, else ~/.hermes/reflex/guards.json.
+The shadow log is $REFLEX_GUARD_LOG, else ~/.hermes/reflex/guard_shadow.jsonl.
 The Hermes state path is the argument, else $REFLEX_HERMES_STATE, else ~/.hermes/state.db.
 """
 
@@ -119,7 +123,25 @@ def main():
         return 0
     if cmd == "context":
         from reflex import analyze
-        print(analyze.context(ledger.connect(path)))
+        job = rest[rest.index("--job") + 1] if "--job" in rest else None
+        since = None
+        if "--since" in rest:
+            import calendar
+            import time
+            try:
+                since = calendar.timegm(time.strptime(rest[rest.index("--since") + 1], "%Y-%m-%d"))
+            except ValueError:
+                raise RuntimeError("--since takes a date as YYYY-MM-DD (UTC)")
+        print(analyze.context(ledger.connect(path), job, since))
+        return 0
+    if cmd == "guard-check" and rest:
+        from reflex import guards
+        e = guards.shadow_check(rest[0], rest[1] if len(rest) > 1 else None)
+        print("%s: %s" % (e["decision"], e["reason"]))
+        return 0
+    if cmd == "guard-shadow":
+        from reflex import guards
+        print(guards.render(guards.replay(ledger.connect(path), rest[0] if rest else None, shadow=True)))
         return 0
     if cmd == "guard-replay":
         from reflex import guards
