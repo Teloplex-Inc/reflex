@@ -24,7 +24,7 @@ BLOB_HEAD = 2 * 1024
 SESSION_KINDS = ("interactive", "cron", "webhook", "other")
 SPAN_KINDS = ("model_call", "tool_call", "decision", "route")
 OUTCOME_SOURCES = ("hindsight_regex", "user_correction", "user_accept", "verifier",
-                   "controlled_skip", "human_audit")
+                   "controlled_skip", "human_audit", "process")
 OUTCOME_LABELS = ("satisfied", "corrected", "failed", "unknown")
 OUTCOME_STRENGTHS = ("outcome", "counterfactual", "behavioral")
 BLOB_PREFIX = '{"blob":'

@@ -10,6 +10,8 @@ trace ledger
   python -m reflex import-proxy CAPTURE.jsonl       traces from a model-gateway capture log
   python -m reflex import-otlp TRACES.jsonl         traces from an OpenTelemetry JSON export
   python -m reflex backfill-outcomes                copy existing hindsight labels into outcomes
+  python -m reflex label-process                    label finished runs clean or failed (weak evidence)
+  python -m reflex verify [VERIFIERS.json]          apply your per-job checks to scheduled runs
   python -m reflex shell-commands [--top N]         which shell commands run, and how each is classed
   python -m reflex report [--json] [--min-count N]  where the tokens go and which work recurs
 
@@ -20,6 +22,7 @@ decision models
   python -m reflex deploy-gate INCUMBENT CANDIDATE  never-deploy-worse check on two eval files
 
 The ledger path is --ledger, else $REFLEX_LEDGER, else ~/.hermes/reflex/ledger.db.
+The verifiers file is the argument, else $REFLEX_VERIFIERS, else ~/.hermes/reflex/verifiers.json.
 The Hermes state path is the argument, else $REFLEX_HERMES_STATE, else ~/.hermes/state.db.
 """
 
@@ -104,6 +107,21 @@ def main():
             total, read, 100.0 * read / total if total else 0.0, len(counts)))
         for (effect, shape), n in sorted(counts.items(), key=lambda kv: -kv[1])[:top]:
             print("%7d  %-8s %s\n         e.g. %s" % (n, effect, shape[:100], example[(effect, shape)]))
+        return 0
+    if cmd == "label-process":
+        from reflex import outcomes
+        st = outcomes.label_process(ledger.connect(path))
+        print("process: %d runs newly labelled clean, %d failed; %d unfinished runs left unlabelled" % (
+            st["satisfied"], st["failed"], st["unfinished"]))
+        return 0
+    if cmd == "verify":
+        from reflex import outcomes
+        results = outcomes.verify(ledger.connect(path), rest[0] if rest else None)
+        for vid, r in results.items():
+            print("verifier %s: %d runs, %d satisfied, %d failed (%d labels added)" % (
+                vid, r["runs"], r["satisfied"], r["failed"], r["new"]))
+            if not r["runs"]:
+                print("  no finished runs of that job in the ledger; check the job name against the report")
         return 0
     if cmd == "backfill-outcomes":
         con = ledger.connect(path)

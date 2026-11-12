@@ -544,6 +544,81 @@ class HermesImportTest(Base):
         self.assertEqual(hermes._share(None, [1, 2]), [None, None])
 
 
+class OutcomeSourcesTest(Base):
+    def fill(self):
+        runs = [  # trace id, status, final output, the shell command it ran, that step's status
+            ("ok1", "completed", "Digest delivered to #ops", "python send_digest.py", "ok"),
+            ("ok2", "completed", "Digest delivered", "python send_digest.py", "ok"),
+            ("quiet", "completed", "Nothing to report", "ls", "ok"),
+            ("broke", "completed", "Digest delivered", "python send_digest.py", "error"),
+            ("going", "interrupted", None, "python send_digest.py", "interrupted"),
+        ]
+        for i, (tid, status, final, command, step) in enumerate(runs):
+            ledger.write_trace(self.con, {
+                "trace_id": tid, "source": "proxy", "session_id": "cron_digest_2026110%d" % i,
+                "session_kind": "cron", "request": "run the digest", "status": status, "final_output": final},
+                [{"kind": "model_call", "name": "m", "input_tokens": 90, "output_tokens": 10},
+                 {"kind": "tool_call", "name": "terminal", "input": {"command": command}, "status": step}])
+        self.con.commit()
+
+    def labels(self, source):
+        return dict(self.con.execute(
+            "SELECT trace_id, label FROM outcomes WHERE source = ? ORDER BY outcome_id", (source,)).fetchall())
+
+    def verifiers(self, items):
+        p = os.path.join(self.dir, "verifiers.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(items, f)
+        return p
+
+    def test_process_labels_are_weak_and_idempotent(self):
+        from reflex import outcomes
+        self.fill()
+        st = outcomes.label_process(self.con)
+        self.assertEqual(st, {"satisfied": 3, "failed": 1, "unfinished": 1})
+        self.assertEqual(self.labels("process"),
+                         {"ok1": "satisfied", "ok2": "satisfied", "quiet": "satisfied", "broke": "failed"})
+        self.assertEqual(outcomes.label_process(self.con), {"satisfied": 0, "failed": 0, "unfinished": 1})
+        strengths = {r[0] for r in self.con.execute("SELECT strength FROM outcomes")}
+        self.assertEqual(strengths, {"behavioral"})
+        # a clean run is not evidence the work was right: the report keeps it apart
+        rep = report.build(self.con, min_count=3)
+        c = rep["clusters"][0]
+        self.assertEqual((c["labels"], c["process_labels"]), ({}, {"failed": 1, "satisfied": 3}))
+        self.assertEqual(c["verdict"], "blocked: unknown tools")
+        self.assertIn("no outcomes (process: failed 1, clean 3)", report.render(rep))
+
+    def test_verifier_labels_count_and_follow_the_file(self):
+        from reflex import outcomes
+        self.fill()
+        path = self.verifiers([{"id": "delivered", "job": "cron_digest",
+                                "final_output_matches": "delivered", "final_output_not_matches": "error",
+                                "requires_tool": {"name": "terminal", "input_matches": r"send_digest\.py"}}])
+        res = outcomes.verify(self.con, path)
+        self.assertEqual(res, {"delivered": {"runs": 4, "satisfied": 2, "failed": 2, "new": 4}})
+        self.assertEqual(self.labels("verifier"),
+                         {"ok1": "satisfied", "ok2": "satisfied", "quiet": "failed", "broke": "failed"})
+        why = dict(self.con.execute("SELECT trace_id, evidence FROM outcomes WHERE source = 'verifier'"))
+        self.assertIn("final_output_matches", why["quiet"])
+        self.assertIn("requires_tool", why["broke"])       # its only matching call did not succeed
+        self.assertEqual(outcomes.verify(self.con, path)["delivered"]["new"], 0)
+        # a changed verifier is a new labeler and labels again; a job with no runs reports zero
+        path = self.verifiers([{"id": "delivered", "job": "cron_digest", "final_output_matches": "."},
+                               {"id": "other", "job": "cron_nothing", "final_output_matches": "x"}])
+        res = outcomes.verify(self.con, path)
+        self.assertEqual((res["delivered"]["satisfied"], res["delivered"]["new"], res["other"]["runs"]), (4, 4, 0))
+        # verifier labels do count toward a candidate on outcomes
+        rep = report.build(self.con, min_count=4)
+        self.assertEqual(rep["clusters"][0]["labels"], {"satisfied": 4})
+        self.assertEqual(rep["clusters"][0]["verdict"], "candidate on outcomes")
+
+    def test_verifier_file_is_checked(self):
+        from reflex import outcomes
+        for bad in ({"id": "x"}, [{"id": "x", "job": "j"}], [{"id": "x", "job": "j", "runs": "rm -rf /"}]):
+            with self.assertRaises(RuntimeError):
+                outcomes.load_verifiers(self.verifiers(bad))
+
+
 def by_verdict(rep, verdict):
     return [c["cluster"] for c in rep["clusters"] if c["verdict"] == verdict]
 

@@ -108,7 +108,7 @@ signal is a new row.
 | `trace_id` | TEXT | FK to `traces`. |
 | `span_id` | TEXT NULL | When the evidence is about one step. |
 | `ts` | REAL | When the evidence was observed. |
-| `source` | TEXT | `hindsight_regex`, `user_correction`, `user_accept`, `verifier`, `controlled_skip`, `human_audit`. |
+| `source` | TEXT | `hindsight_regex`, `user_correction`, `user_accept`, `verifier`, `controlled_skip`, `human_audit`, `process`. |
 | `label` | TEXT | `satisfied`, `corrected`, `failed`, `unknown`. |
 | `strength` | TEXT | `outcome`, `counterfactual`, `behavioral`, as defined in [LABELING.md](LABELING.md). |
 | `evidence` | TEXT | The message, test output or reference that justifies the label. |
@@ -343,8 +343,18 @@ Known limits of this version:
   work goes well; it does not show a step is safe to run twice or to skip, so such a
   route may be compiled and shadowed but gets no skip stage until its tools are
   classified. Scheduled runs have no user reply, so the hindsight labels never cover
-  them; they need another outcome source (section 10, question 4) before this rule can
-  nominate them.
+  them. Two sources in `reflex/outcomes.py` cover them:
+  - `python -m reflex label-process` labels each finished run clean or failed from its
+    status and its steps' statuses (`source = process`, `strength = behavioral`). A run
+    can finish cleanly and be wrong, so the report shows these beside a cluster's
+    outcomes and never counts them toward a candidate.
+  - `python -m reflex verify` applies checks a person writes for one job, kept in a
+    local file outside the repository: a pattern the final output must match, one it
+    must not, and a tool call that must have succeeded (`source = verifier`,
+    `strength = outcome`). A verifier reads the ledger and runs nothing. These labels
+    do count. The file format is in the module's docstring.
+  Both append a label only when a run has none from that source or its label changed.
+  Synthetic data only so far.
 - Importing Hermes messages with `active = 0` would double-count: on the fleet 24,589 of
   them have an identical active copy in the same session. They stay skipped.
 - The OTLP attribute names in `otlp.ATTRS` are candidates, not checked against one

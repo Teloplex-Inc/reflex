@@ -86,10 +86,15 @@ def build(con, min_count=MIN_COUNT, top=20):
             unclassified[name or "?"] = unclassified.get(name or "?", 0) + 1
             unknown_calls[tid] = unknown_calls.get(tid, 0) + 1
     # one label per trace: its most recent outcome row
-    latest = {}
-    for tid, label, strength in con.execute(
-            "SELECT trace_id, label, strength FROM outcomes ORDER BY trace_id, ts, outcome_id"):
-        latest[tid] = (label, strength)
+    # Process signals (the run finished without an error) are kept apart: they show a run
+    # was clean, not that it was right, and do not count toward a candidate.
+    latest, process = {}, {}
+    for tid, label, strength, source in con.execute(
+            "SELECT trace_id, label, strength, source FROM outcomes ORDER BY trace_id, ts, outcome_id"):
+        if source == "process":
+            process[tid] = label
+        else:
+            latest[tid] = (label, strength)
 
     kinds, clusters, jobs, sessions = {}, {}, {}, {}
     tot = {"traces": len(traces), "with_tokens": 0, "input": 0, "output": 0, "cache_read": 0,
@@ -136,7 +141,7 @@ def build(con, min_count=MIN_COUNT, top=20):
             j["unknown_calls"] += unknown_calls.get(tid, 0)
         key = cluster_key(kind, sid, signature(tools.get(tid, [])), request)
         c = clusters.setdefault(key, {"key": key, "kind": kind, "count": 0, "tokens": [], "cost_usd": 0.0,
-                                      "labels": {}, "effects": set(), "example": None})
+                                      "labels": {}, "process": {}, "effects": set(), "example": None})
         c["count"] += 1
         if tokens is not None:
             c["tokens"].append(tokens)
@@ -144,6 +149,8 @@ def build(con, min_count=MIN_COUNT, top=20):
             c["cost_usd"] += cost
         if tid in latest:
             c["labels"][latest[tid][0]] = c["labels"].get(latest[tid][0], 0) + 1
+        if tid in process:
+            c["process"][process[tid]] = c["process"].get(process[tid], 0) + 1
         c["effects"] |= effects.get(tid, set())
         if c["example"] is None and request:
             c["example"] = " ".join(request.split())[:160]
@@ -176,6 +183,7 @@ def build(con, min_count=MIN_COUNT, top=20):
             "token_share_pct": _pct(sum(c["tokens"]), total_tokens),
             "cost_usd": round(c["cost_usd"], 4),
             "labels": dict(sorted(c["labels"].items())),
+            "process_labels": dict(sorted(c["process"].items())),
             "side_effects": sorted(c["effects"]),
             "verdict": verdict, "example": c["example"],
         })
@@ -289,6 +297,9 @@ def render(rep):
     out += ["", "Top clusters by tokens:"]
     for c in rep["clusters"]:
         labels = ", ".join("%s %d" % kv for kv in c["labels"].items()) or "no outcomes"
+        if c["process_labels"]:
+            labels += " (process: %s)" % ", ".join("%s %d" % (
+                {"satisfied": "clean"}.get(k, k), v) for k, v in c["process_labels"].items())
         out += [
             "  [%s] x%d  %s tokens (%s%%)  median %s  $%.2f" % (
                 c["verdict"], c["count"], _n(c["tokens"]), _n(c["token_share_pct"]),

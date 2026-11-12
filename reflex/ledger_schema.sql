@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS outcomes (
     trace_id            TEXT NOT NULL REFERENCES traces(trace_id) ON DELETE CASCADE,
     span_id             TEXT,
     ts                  REAL NOT NULL,
-    source              TEXT NOT NULL,  -- hindsight_regex | user_correction | user_accept | verifier | controlled_skip | human_audit
+    source              TEXT NOT NULL,  -- hindsight_regex | user_correction | user_accept | verifier | controlled_skip | human_audit | process
     label               TEXT NOT NULL,  -- satisfied | corrected | failed | unknown
     strength            TEXT NOT NULL,  -- outcome | counterfactual | behavioral
     evidence            TEXT,
