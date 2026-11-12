@@ -40,7 +40,7 @@
   "mcp_monday_delete_object_schema_columns": "irreversible", "mcp_monday_create_update": "irreversible",
   "mcp_monday_create_notification": "irreversible", "mcp_monday_create_form_submission": "irreversible",
   "_shell": {
-    "_note": "Shell tools are classified by their command, not their name (see shell_effect.py). 'tools' maps a tool name to the argument that holds the command. 'read_commands' lists programs that only read; 'deny' holds argument prefixes that make one write or run something, 'deny_short' single-letter flags that do, 'sub' the allowed subcommands, 'max_args' the most non-flag arguments allowed, 'args_match' a pattern every argument must match in full, 'first_match' a pattern the first non-flag argument must be present and match in full. curl is an allow-list: http and https only, and only flags that neither send data nor write a file; fetching a URL counts as reading. sed may only print, delete, quit or substitute. awk is not listed: it can run commands and write files. A command is 'read' only if every part of it is listed and clean; otherwise it is 'unknown'. This list is a conservative start, to be extended from the commands a fleet actually runs (python -m reflex shell-commands).",
+    "_note": "Shell tools are classified by their command, not their name (see shell_effect.py). 'tools' maps a tool name to the argument that holds the command. 'read_commands' lists programs that only read; 'deny' holds argument prefixes that make one write or run something, 'deny_short' single-letter flags that do, 'sub' the allowed subcommands, 'max_args' the most non-flag arguments allowed, 'args_match' a pattern every argument must match in full, 'first_match' a pattern the first non-flag argument must be present and match in full. curl is an allow-list: http and https only, and only flags that neither send data nor write a file, no value read from a file (@name) and no variable to expand, so nothing local can be sent out; fetching a URL counts as reading. sed may only print, delete, quit or substitute. awk is not listed: it can run commands and write files. A command is 'read' only if every part of it is listed and clean; otherwise it is 'unknown'. This list is a conservative start, to be extended from the commands a fleet actually runs (python -m reflex shell-commands).",
     "tools": {"terminal": "command"},
     "read_commands": {
       "ls": {}, "cat": {}, "head": {}, "tail": {}, "wc": {}, "grep": {}, "pwd": {}, "cd": {},
@@ -58,8 +58,9 @@
               "deny": ["--output", "--ext-diff"]},
       "printf": {},
       "xargs": {"max_args": 0, "deny": ["--interactive", "--open-tty"], "deny_short": "po"},
-      "curl": {"args_match": "-[sSLkfIivg46]+[mAHe]?|-[mAHe]|--(silent|show-error|location|insecure|fail|head|include|compressed|globoff|ipv4|ipv6|verbose)|--(max-time|connect-timeout|retry|retry-delay|retry-max-time|user-agent|header|referer)|https?://.*|(?!-)(?!.*://).*"},
+      "curl": {"args_match": "(?!.*\\$)(?:-[sSLkfIivg46]+[mAHe]?|-[mAHe]|--(silent|show-error|location|insecure|fail|head|include|compressed|globoff|ipv4|ipv6|verbose)|--(max-time|connect-timeout|retry|retry-delay|retry-max-time|user-agent|header|referer)|https?://.*|(?![-@])(?!.*://).*)"},
       "sed": {"deny": ["--in-place", "--expression", "--file", "--debug"], "deny_short": "iefl",
+              "args_match": "-[nEsrzu]+|--(quiet|silent|regexp-extended|separate|null-data|zero-terminated|unbuffered|posix|sandbox)|(?!-).*",
               "first_match": "(?:\\s*(?:(?:\\d+|\\$|/(?:[^/\\\\]|\\\\.)*/)(?:,(?:\\+?\\d+|\\$|/(?:[^/\\\\]|\\\\.)*/))?!?)?(?:[pdq]|s([/|#])(?:(?!\\1)[^\\\\]|\\\\.)*\\1(?:(?!\\1)[^\\\\]|\\\\.)*\\1[gIip0-9]*)\\s*(?:;|$))+"}
     }
   }
