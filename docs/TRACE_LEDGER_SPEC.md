@@ -288,9 +288,9 @@ Guard replay on the fleet, 2026-11-12 (five guards, written by the fleet's agent
 - A guard does not fit an open-ended loop. On the three working loops every skip was a
   false skip (103 of 103). Those runs have several sources of work besides the observed
   queue file, and they end with a report, never `[SILENT]`.
-- On four of the five jobs, between 20% and 96% of past runs never made the guard's observation in a form
-  the pattern matched. A replay counts those as wake-ups, so it understates what a
-  guard that makes the observation itself would skip.
+- On four of the five jobs, between 20% and 96% of past runs never made the guard's
+  observation in a form the pattern matched. A replay counts those as wake-ups, so it
+  understates what a guard that makes the observation itself would skip.
 
 ### 6.1 The compile-coverage test
 
