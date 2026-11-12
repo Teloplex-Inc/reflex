@@ -38,7 +38,7 @@ import os
 import re
 
 from reflex import ledger
-from reflex.report import job_name
+from reflex.report import is_job
 
 DEFAULT_VERIFIERS = os.path.expanduser("~/.hermes/reflex/verifiers.json")
 CONDITIONS = ("final_output_matches", "final_output_not_matches", "requires_tool")
@@ -139,7 +139,7 @@ def verify(con, path=None):
         version = "verifier:%s:%s" % (v["id"], digest)
         r = results.setdefault(v["id"], {"runs": 0, "satisfied": 0, "failed": 0, "new": 0})
         for tid, sid, final in runs:
-            if job_name(sid) != v["job"]:
+            if not is_job(sid, v["job"]):
                 continue
             why = _check(con, v, tid, final)
             label = "failed" if why else "satisfied"

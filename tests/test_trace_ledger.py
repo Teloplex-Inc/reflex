@@ -990,6 +990,36 @@ class ReportTest(Base):
                          "fetch <str> from <url> for <date>, <n> rows")
         self.assertEqual(report.signature(["a", "a", "b", "a"]), "a > b > a")
         self.assertEqual(report.job_name("cron_digest_20261110"), "cron_digest")
+        # a Hermes run: only the stamp goes, so an id ending in digits stays whole
+        self.assertEqual(report.job_name("cron_ba1438859858_20261112_090003"), "cron_ba1438859858")
+        self.assertEqual(report.job_name("cron_3c950dd4ddd0_20261112_080000"), "cron_3c950dd4ddd0")
+        self.assertEqual(report.legacy_job_name("cron_ba1438859858_20261112_090003"), "cron_ba")
+        self.assertEqual(report.job_name("nightly-7"), "nightly")           # no stamp: the older rule
+        # a guard or verifier written against the older, shortened name still finds its runs
+        self.assertTrue(report.is_job("cron_3c950dd4ddd0_20261112_080000", "cron_3c950dd4ddd"))
+        self.assertTrue(report.is_job("cron_3c950dd4ddd0_20261112_080000", "cron_3c950dd4ddd0"))
+        self.assertFalse(report.is_job("cron_3c950dd4ddd0_20261112_080000", "cron_3c950dd4"))
+
+    def test_passwords_given_to_commands_and_urls_are_redacted(self):
+        pw = "Tr0ub4dor&3?"
+        for text, kept in (
+                ('curl -s -u "jsmith:%s" "https://api.example.com/Tenants?pagesize=1" -o out' % pw, 'jsmith:'),
+                ("curl -u jsmith:%s https://api.example.com" % pw, "jsmith:"),
+                ("curl --user=jsmith:%s https://api.example.com" % pw, "jsmith:"),
+                ("curl -u 'jsmith:%s with space' https://api.example.com" % pw, "jsmith:"),
+                ("git clone https://jsmith:%s@github.com/x/y.git" % pw, "jsmith:"),
+                ("psql postgres://app:%s@db.internal:5432/main" % pw, "@db.internal:5432/main"),
+                (json.dumps({"command": 'curl -s -u "jsmith:%s" https://api.example.com' % pw}), "jsmith:")):
+            got = redact.redact(text)
+            self.assertNotIn(pw, got, text)
+            self.assertNotIn("with space", got)
+            self.assertIn("[REDACTED:password]", got)
+            self.assertIn(kept, got)
+        self.assertEqual(redact.redact("Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ="),
+                         "Authorization: [REDACTED:basic_auth]")
+        for plain in ("sort -u names.txt", "id -u", "git push -u origin main", "http://localhost:8080/a@b",
+                      "see https://example.com/path:with@colon", "ls -la"):
+            self.assertEqual(redact.redact(plain), plain)
 
 
 if __name__ == "__main__":

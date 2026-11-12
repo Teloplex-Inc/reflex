@@ -12,7 +12,7 @@ import statistics
 import time
 
 from reflex import ledger
-from reflex.report import MAX_CONTEXT, job_name, normalise, signature
+from reflex.report import MAX_CONTEXT, is_job, job_name, normalise, signature
 from reflex.shell_effect import shape
 
 BYTES_PER_TOKEN = 4      # placeholder: rough size of a token, to compare bytes with token counts
@@ -38,7 +38,7 @@ def job_profile(con, job, samples=5):
     runs = [r for r in con.execute(
         "SELECT trace_id, session_id, started_at, status, request, final_output, input_tokens, "
         "output_tokens, cost_usd, n_model_calls FROM traces WHERE session_kind = 'cron' "
-        "ORDER BY started_at, trace_id") if job_name(r[1]) == job]
+        "ORDER BY started_at, trace_id") if is_job(r[1], job)]
     if not runs:
         names = sorted({job_name(r[0]) for r in con.execute(
             "SELECT session_id FROM traces WHERE session_kind = 'cron'")})
@@ -144,7 +144,7 @@ def context(con, job=None, since=None):
             "SELECT trace_id, session_id, session_kind, started_at, length(request), input_tokens, "
             "n_model_calls FROM traces WHERE session_id IS NOT NULL ORDER BY session_id, started_at, trace_id"):
         if sid not in sessions:   # a session is in or out as a whole, by its first turn
-            if job is not None and (kind != "cron" or job_name(sid) != job):
+            if job is not None and (kind != "cron" or not is_job(sid, job)):
                 continue
             if since is not None and (started is None or started < since):
                 continue

@@ -57,8 +57,29 @@ def signature(tool_names):
     return " > ".join(out)
 
 
+_RUN_STAMP = re.compile(r"_\d{8}_\d{6}(?:_[0-9a-f]+)?$")
+
+
 def job_name(session_id):
-    """A scheduled session's job: its id without a trailing run number, date or hash."""
+    """A scheduled session's job: its id without the trailing run stamp.
+
+    Hermes names a run cron_<job id>_<YYYYMMDD>_<HHMMSS>. Only that stamp is removed, so
+    a job id that ends in digits stays whole. Other shapes fall back to the older rule.
+    """
+    sid = session_id or ""
+    m = _RUN_STAMP.search(sid)
+    return sid[:m.start()] if m and m.start() else legacy_job_name(sid)
+
+
+def is_job(session_id, job):
+    """Whether a session is a run of the named job. The name the older rule gave is still
+    accepted, so guards and verifiers written against it keep working."""
+    return job in (job_name(session_id), legacy_job_name(session_id))
+
+
+def legacy_job_name(session_id):
+    """The older rule: drop a trailing run number, date or hash. It also ate the end of a
+    job id that finished in digits (cron_ba1438859858_... became cron_ba)."""
     return re.sub(r"[_\-.:]?(?:\d[\d_\-.:T]*|[0-9a-f]{8,})$", "", session_id or "") or (session_id or "")
 
 

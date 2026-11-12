@@ -210,7 +210,12 @@ full tool inputs and outputs, or only names and timings. Section 8 includes that
   network call.
 - Redaction runs before anything is written: API keys, bearer tokens, private keys and
   anything matching the user's own deny patterns are replaced with a typed placeholder.
-  Hashes are computed after redaction.
+  Hashes are computed after redaction. Passwords given as `user:password` to a command
+  (`-u`, `--user`) or inside a URL, and Basic authorization values, are redacted too.
+  Redaction is by pattern and will miss a secret that looks like ordinary text, so
+  every printed report must be read before it is shared. When the patterns change,
+  importing again rewrites the stored traces but leaves old blob files behind: delete
+  the ledger and its blob directory and import from the start.
 - File mode is owner-only for the ledger and blobs.
 - Retention is configurable per session kind. Default: keep everything. Deleting a
   trace deletes its spans, outcomes and unreferenced blobs.

@@ -51,7 +51,7 @@ import subprocess
 import time
 
 from reflex import ledger
-from reflex.report import job_name
+from reflex.report import is_job
 
 DEFAULT_GUARDS = os.path.expanduser("~/.hermes/reflex/guards.json")
 DEFAULT_LOG = os.path.expanduser("~/.hermes/reflex/guard_shadow.jsonl")
@@ -180,7 +180,7 @@ def replay(con, path=None, shadow=False, log=None):
             "skip_silent", "false_skip", "wake_silent", "wake_work", "no_observation")}
         examples = []
         for tid, sid, final, inp, out, cost, started in runs:
-            if job_name(sid) != g["job"]:
+            if not is_job(sid, g["job"]):
                 continue
             final = ledger.read_payload(con, final) or ""
             if shadow:

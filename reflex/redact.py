@@ -10,7 +10,7 @@ floor, not a guarantee: keep the ledger file private.
 import os
 import re
 
-VERSION = "1"
+VERSION = "2"
 
 _PATTERNS = [
     ("private_key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
@@ -24,6 +24,7 @@ _PATTERNS = [
     ("hf_token", r"\bhf_[A-Za-z0-9]{30,}"),
     ("jwt", r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),
     ("bearer", r"(?i)\bbearer\s+[A-Za-z0-9._\-+/=]{16,}"),
+    ("basic_auth", r"(?i)\bbasic\s+[A-Za-z0-9+/]{16,}={0,2}"),
 ]
 _COMPILED = [(name, re.compile(rx)) for name, rx in _PATTERNS]
 
@@ -32,6 +33,14 @@ _ASSIGN = re.compile(
     r"(?i)((?:\b|(?<=\\[nrt]))(?:api[_\-]?key|secret|client[_\-]?secret|access[_\-]?token|auth[_\-]?token|token|password|passwd)\b"
     r"\\?[\"']?\s*[:=]\s*\\?[\"']?)([^\s\"'\\,}\]]{8,})"
 )
+
+# user:password given to a command (curl -u, --user) or inside a URL: keep the user, redact
+# the password. The quoted form runs to the closing quote, so a password may hold spaces.
+_USERPASS = [
+    re.compile(r"""((?<![\w-])(?:-u|--user)(?:\s+|=)\\?(["'])[^"'\\:\s]+:)((?:(?!\\?\2).)+)"""),
+    re.compile(r"""((?<![\w-])(?:-u|--user)(?:\s+|=)[^\s"'\\:]+:)()([^\s"'\\]+)"""),
+    re.compile(r"""((?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,15}://[^\s/:@"'\\]+:)()([^\s/@"'\\]+)(?=@)"""),
+]
 
 _user_cache = {"path": None, "mtime": None, "patterns": []}
 
@@ -59,6 +68,8 @@ def redact(text):
     for name, rx in _COMPILED:
         text = rx.sub("[REDACTED:%s]" % name, text)
     text = _ASSIGN.sub(lambda m: m.group(1) + "[REDACTED:secret]", text)
+    for rx in _USERPASS:
+        text = rx.sub(lambda m: m.group(1) + "[REDACTED:password]", text)
     for rx in _user_patterns():
         text = rx.sub("[REDACTED:user_pattern]", text)
     return text
