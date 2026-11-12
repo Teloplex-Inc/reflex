@@ -981,6 +981,19 @@ class ReportTest(Base):
         self.assertIn("candidates on outcomes only", a)
         self.assertIn("Largest sessions", a)
         self.assertEqual(report.build(self.con)["unclassified_tools"], {"terminal": 10})
+        # runs that stopped without a closing message are counted, with what they cost
+        self.assertNotIn("Ended without a final answer", a)
+        for i in range(2):
+            ledger.write_trace(self.con, {"trace_id": "cut%d" % i, "source": "proxy", "session_id": "cron_cut_%d" % i,
+                                          "session_kind": "cron", "request": "x", "status": "interrupted"},
+                               [{"kind": "model_call", "name": "m", "input_tokens": 10, "output_tokens": 1,
+                                 "cost_usd": 0.25}])
+        self.con.commit()
+        rep = report.build(self.con)
+        self.assertEqual(rep["no_final_answer"], {"cron": {"traces": 2, "cost_usd_known": 0.5}})
+        self.assertIn("  cron               2 traces  $0.50", report.render(rep))
+        from reflex import analyze
+        self.assertIn("Runs: 2  (no final answer 2)", analyze.job_profile(self.con, "cron_cut"))
 
     def test_empty_ledger(self):
         self.assertIn("no traces yet", report.render(report.build(self.con)))

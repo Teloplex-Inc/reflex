@@ -224,6 +224,12 @@ def build(con, min_count=MIN_COUNT, top=20):
             "cached_share_of_input_pct": _pct(tot["cache_read"], tot["input"]),
             "cost_usd_known": round(tot["cost_usd"], 4), "traces_with_cost": tot["cost_known"],
         },
+        # a run whose last step was a tool call, or that never produced a final message. The
+        # work may have been done (files written); what is missing is the closing answer.
+        "no_final_answer": {
+            k: {"traces": n, "cost_usd_known": round(c or 0.0, 4)} for k, n, c in con.execute(
+                "SELECT session_kind, COUNT(*), SUM(cost_usd) FROM traces WHERE status = 'interrupted' "
+                "GROUP BY session_kind ORDER BY session_kind")},
         "by_session_kind": {
             k: {"traces": v["traces"], "input_tokens": v["input"], "output_tokens": v["output"],
                 "token_share_pct": _pct(v["input"] + v["output"], total_tokens),
@@ -291,6 +297,11 @@ def render(rep):
         out.append("  %-12s %7s traces  %14s tokens  %6s%% of tokens  $%.2f" % (
             k, _n(v["traces"]), _n(v["input_tokens"] + v["output_tokens"]),
             _n(v["token_share_pct"]), v["cost_usd_known"]))
+    if rep.get("no_final_answer"):
+        out += ["", "Ended without a final answer (stopped on a tool call, often a step limit; the work "
+                "may still have been done, but nothing closing was delivered):"]
+        for k, v in rep["no_final_answer"].items():
+            out.append("  %-12s %7s traces  $%.2f" % (k, _n(v["traces"]), v["cost_usd_known"]))
     out += [
         "", "Recurrence (a cluster recurs at %d or more traces):" % r["min_count"],
         "  %s clusters, %s recurring" % (_n(r["clusters"]), _n(r["recurring_clusters"])),

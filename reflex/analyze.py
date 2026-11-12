@@ -85,7 +85,8 @@ def job_profile(con, job, samples=5):
 
     out = [
         "JOB %s" % job, "",
-        "Runs: %s  (%s)" % (_n(len(runs)), ", ".join("%s %d" % kv for kv in sorted(statuses.items()))),
+        "Runs: %s  (%s)" % (_n(len(runs)), ", ".join(
+            "%s %d" % ("no final answer" if k == "interrupted" else k, n) for k, n in sorted(statuses.items()))),
         "Tokens: %s in all, median %s a run; model calls a run: median %s" % (
             _n(sum(tokens)), _n(int(statistics.median(tokens))) if tokens else "unknown",
             _n(int(statistics.median(calls))) if calls else "unknown"),

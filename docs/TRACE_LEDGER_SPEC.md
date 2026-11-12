@@ -311,6 +311,17 @@ A one-off experiment on top of the report, run by hand:
 Replay is only valid where the route's tool calls are read-only or stay on the recorded
 path. Clusters with irreversible effects are excluded.
 
+The recorded output is not ground truth. The first run of this test, on a second fleet
+on 2026-11-12, took a scheduled job in which a model reviews another job's output and
+grades it. In 10 sampled runs, 6 had the same defect in the input (two steps printed
+nothing); the model graded those pass twice, pass with notes three times and fail once,
+and the one fail was the only review that re-ran the command and found the real error.
+A short checker written from the samples graded all six fail. Scored on agreement with
+the model, the checker would have looked worse. So step 4 compares a route with what
+actually happened, checked independently, and treats agreement with the recorded output
+as a weak signal only. The model's value in that job was diagnosing the failure, which
+is the part to keep: run the check in code and wake the model when it fails.
+
 Working thresholds, both placeholders until measured: coverage above about 50% makes
 compile-down the main lever; below about 30% points to context and scheduling levers
 first.
