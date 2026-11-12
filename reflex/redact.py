@@ -10,7 +10,7 @@ floor, not a guarantee: keep the ledger file private.
 import os
 import re
 
-VERSION = "2"
+VERSION = "3"
 
 _PATTERNS = [
     ("private_key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
@@ -35,11 +35,18 @@ _ASSIGN = re.compile(
 )
 
 # user:password given to a command (curl -u, --user) or inside a URL: keep the user, redact
-# the password. The quoted form runs to the closing quote, so a password may hold spaces.
+# the password. When it is unclear where the password ends, more is redacted, not less.
+_OPT = r"""((?<![\w-])(?:-u|--user(?![\w-]))(?:\s+|=)?"""
 _USERPASS = [
-    re.compile(r"""((?<![\w-])(?:-u|--user)(?:\s+|=)\\?(["'])[^"'\\:\s]+:)((?:(?!\\?\2).)+)"""),
-    re.compile(r"""((?<![\w-])(?:-u|--user)(?:\s+|=)[^\s"'\\:]+:)()([^\s"'\\]+)"""),
-    re.compile(r"""((?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,15}://[^\s/:@"'\\]+:)()([^\s/@"'\\]+)(?=@)"""),
+    # quoted, inside text that is itself JSON (the quote is written \"): runs to the next \"
+    re.compile(_OPT + r"""\\(["'])[^"'\\:\s]+:)((?:\\\\\\?.|(?!\\\2).)+)"""),
+    # quoted: runs to the closing quote, passing escaped characters
+    re.compile(_OPT + r"""(["'])[^"'\\:\s]+:)((?:\\.|(?!\2).)+)"""),
+    # not quoted: the rest of the shell word, escaped characters included
+    re.compile(_OPT + r"""[^\s"'\\:]+:)()((?:\\[^nrt]|[^\s"'\\])+)"""),
+    # in a URL: everything up to the last @ that is followed by a host
+    re.compile(r"""((?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,15}://[^\s/:@"'\\]+:)()([^\s"'\\]+)"""
+               r"""(?=@[^\s@/"'\\]+(?:[:/?#\s"'\\]|$))"""),
 ]
 
 _user_cache = {"path": None, "mtime": None, "patterns": []}

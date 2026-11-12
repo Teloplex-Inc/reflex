@@ -1009,15 +1009,22 @@ class ReportTest(Base):
                 ("curl -u 'jsmith:%s with space' https://api.example.com" % pw, "jsmith:"),
                 ("git clone https://jsmith:%s@github.com/x/y.git" % pw, "jsmith:"),
                 ("psql postgres://app:%s@db.internal:5432/main" % pw, "@db.internal:5432/main"),
-                (json.dumps({"command": 'curl -s -u "jsmith:%s" https://api.example.com' % pw}), "jsmith:")):
+                (json.dumps({"command": 'curl -s -u "jsmith:%s" https://api.example.com' % pw}), "jsmith:"),
+                (json.dumps({"command": 'curl -u "jsmith:%s with space" https://api.example.com' % pw}),
+                 "https://api.example.com"),
+                ("curl -ujsmith:%s https://api.example.com" % pw, "-ujsmith:"),                 # attached
+                ("curl -u jsmith:ab\\ cd%s https://api.example.com" % pw, " https://api"),      # escaped space
+                ('curl -u "jsmith:ab\\"cd %s" https://api.example.com' % pw, "jsmith:"),        # escaped quote
+                ("git clone https://jsmith:p@ss/%s@github.com/x/y.git" % pw, "@github.com/x/y.git")):
             got = redact.redact(text)
             self.assertNotIn(pw, got, text)
-            self.assertNotIn("with space", got)
+            for part in ("with space", "cd", "p@ss"):
+                self.assertNotIn(part, got, text)
             self.assertIn("[REDACTED:password]", got)
             self.assertIn(kept, got)
         self.assertEqual(redact.redact("Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ="),
                          "Authorization: [REDACTED:basic_auth]")
-        for plain in ("sort -u names.txt", "id -u", "git push -u origin main", "http://localhost:8080/a@b",
+        for plain in ("sort -u names.txt", "id -u", "git push -u origin main", "curl --user-agent 'x: y' https://a.io",
                       "see https://example.com/path:with@colon", "ls -la"):
             self.assertEqual(redact.redact(plain), plain)
 
