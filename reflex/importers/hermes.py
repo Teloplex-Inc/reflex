@@ -29,6 +29,15 @@ Not verified, so treat with care:
 
 Importing again rewrites each trace in place and keeps its outcome rows, so a session
 that was still running at the last import is brought up to date.
+
+A trace from an earlier import can be left behind when its first message stops being
+imported. Two cases are handled differently:
+- The message is a compaction summary, which is not a request. Such a trace was never
+  valid (an early version of this importer wrote them) and is deleted with its spans
+  and outcomes.
+- The message has since been made inactive. The trace may be real history that Hermes
+  later compacted away, so it is kept; the import reports how many there are and the
+  cost they carry, because that cost may also be counted in the session's newer traces.
 """
 import json
 import os
@@ -284,6 +293,11 @@ def import_state(con, path=None):
     rows = src.execute("SELECT %s FROM messages %s ORDER BY session_id, timestamp, id" % (
         ", ".join(names), ("WHERE " + " AND ".join(where)) if where else "")).fetchall()
     totals, info = _session_totals(src, tables)
+    summaries, inactive = set(), set()
+    if "_compressed_summary" in cols:
+        summaries = {str(r[0]) for r in src.execute("SELECT id FROM messages WHERE _compressed_summary = 1")}
+    if "active" in cols:
+        inactive = {str(r[0]) for r in src.execute("SELECT id FROM messages WHERE active = 0")} - summaries
     src.close()
 
     sessions, current = {}, None
@@ -298,7 +312,9 @@ def import_state(con, path=None):
             current["after"].append(m)
 
     stats = {"written": 0, "updated": 0, "sessions": len(sessions),
-             "sessions_without_turns": 0, "cost_usd_without_turns": 0.0}
+             "sessions_without_turns": 0, "cost_usd_without_turns": 0.0,
+             "summary_traces_deleted": 0, "inactive_traces_kept": 0, "cost_usd_inactive": 0.0}
+    current = set()
     for sid, t in totals.items():
         if sid not in sessions:
             stats["sessions_without_turns"] += 1
@@ -323,6 +339,18 @@ def import_state(con, path=None):
                 "totals": part if part is not None else {},
             }
             ledger.write_trace(con, trace, spans, replace=True)
+            current.add(tid)
             stats["updated" if existed else "written"] += 1
+    for tid, mid, cost in con.execute(
+            "SELECT trace_id, message_id, cost_usd FROM traces WHERE source = 'hermes'").fetchall():
+        if tid in current:
+            continue
+        if mid in summaries:
+            for table in ("spans", "outcomes", "traces"):
+                con.execute("DELETE FROM %s WHERE trace_id = ?" % table, (tid,))
+            stats["summary_traces_deleted"] += 1
+        elif mid in inactive:
+            stats["inactive_traces_kept"] += 1
+            stats["cost_usd_inactive"] += cost or 0.0
     con.commit()
     return stats

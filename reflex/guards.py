@@ -19,7 +19,7 @@ A guard is only worth deploying with no false skips over many runs.
 Guards file (default ~/.hermes/reflex/guards.json, or $REFLEX_GUARDS): a JSON list.
 
     [{"id": "queue-has-new-rows",
-      "job": "cron_6490e4c896e",
+      "job": "cron_outreach",
       "observe": {"tool": "terminal", "input_matches": "cat .*onboarding-queue\\\\.md"},
       "work_when_output_matches": "\\\\| *new *\\\\|"}]
 
@@ -31,7 +31,7 @@ a final [SILENT]. Patterns are regular expressions, searched case-insensitively.
 
 Shadow check. Add "check", the command that makes the observation without the model:
 
-      "check": "cat /home/hermes/clients/onboarding-queue.md"
+      "check": "cat /srv/work/onboarding-queue.md"
 
 `python -m reflex guard-check ID` runs it and appends one line (time, guard, wake or
 skip, reason) to the shadow log (default ~/.hermes/reflex/guard_shadow.jsonl, or

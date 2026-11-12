@@ -14,7 +14,7 @@ Two sources, of different strength:
 Verifiers file (default ~/.hermes/reflex/verifiers.json, or $REFLEX_VERIFIERS): a JSON list.
 
     [{"id": "digest-delivered",
-      "job": "cron_eeb5a018dc",
+      "job": "cron_digest",
       "final_output_matches": "delivered|posted",
       "final_output_not_matches": "error|could not",
       "requires_tool": {"name": "terminal", "input_matches": "send_digest\\\\.py"}}]

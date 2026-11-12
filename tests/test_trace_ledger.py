@@ -448,6 +448,29 @@ class HermesImportTest(Base):
             "output_tokens, cache_read_tokens, cost_usd, cost_basis, backfilled, final_output, message_id "
             "FROM traces ORDER BY started_at").fetchall()
 
+    def test_traces_left_by_an_earlier_import(self):
+        # an early import wrote a trace starting at the compaction summary (message 8), and
+        # one starting at a message that has since been made inactive (message 5)
+        for mid, cost in (("8", None), ("5", 0.25)):
+            ledger.write_trace(self.con, {"trace_id": "old" + mid, "source": "hermes", "session_id": "s1",
+                                          "message_id": mid, "request": "x", "totals": {"cost_usd": cost}},
+                               [{"kind": "tool_call", "name": "tool", "output": "y"}])
+            ledger.add_outcome(self.con, "old" + mid, "verifier", "satisfied", "outcome", ts=1)
+        ledger.write_trace(self.con, {"trace_id": "other", "source": "proxy", "message_id": "8", "request": "x"}, [])
+        state = self.make_state()
+        st = hermes.import_state(self.con, state)
+        self.assertEqual((st["written"], st["summary_traces_deleted"], st["inactive_traces_kept"]), (4, 1, 1))
+        self.assertAlmostEqual(st["cost_usd_inactive"], 0.25)
+        left = {r[0] for r in self.con.execute("SELECT trace_id FROM traces")}
+        self.assertEqual(len(left), 6)
+        self.assertTrue({"old5", "other"} <= left and "old8" not in left)
+        for table in ("spans", "outcomes"):
+            self.assertEqual(self.con.execute(
+                "SELECT COUNT(*) FROM %s WHERE trace_id = 'old8'" % table).fetchone()[0], 0)
+        # a second import finds nothing more to delete and still reports the kept trace
+        st = hermes.import_state(self.con, state)
+        self.assertEqual((st["updated"], st["summary_traces_deleted"], st["inactive_traces_kept"]), (4, 0, 1))
+
     def test_traces_tools_and_cost(self):
         st = hermes.import_state(self.con, self.make_state())
         self.assertEqual((st["written"], st["updated"], st["sessions"]), (4, 0, 3))

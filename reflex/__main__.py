@@ -79,6 +79,13 @@ def main():
         st = hermes.import_state(con, rest[0] if rest else None)
         print("hermes: %d traces written, %d refreshed, from %d sessions" % (
             st["written"], st["updated"], st["sessions"]))
+        if st["summary_traces_deleted"]:
+            print("hermes: %d traces from an earlier import deleted: each began at a compaction "
+                  "summary, not a request" % st["summary_traces_deleted"])
+        if st["inactive_traces_kept"]:
+            print("hermes: %d traces from an earlier import begin at a message that is now inactive; "
+                  "kept, carrying $%.2f that the session's newer traces may also count" % (
+                      st["inactive_traces_kept"], st["cost_usd_inactive"]))
         if st["sessions_without_turns"]:
             print("hermes: %d sessions have usage but no user turn to attach it to; "
                   "$%.2f of cost is not in the ledger" % (

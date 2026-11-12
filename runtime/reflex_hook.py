@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """P2 reflex ledger hook — shadow mode (no behavior change).
 Called by the gateway/main-agent before routing a user turn. Logs the Reflex
-decision it WOULD make. Deployed 2026-09-20 per Benton P2 approval.
+decision it WOULD make. Deployed 2026-09-20.
 
 Usage: python3 reflex_hook.py --state-file <json-file> [--task skill_gate]
 Writes: decision row to ~/.hermes/reflex/ledger.db, prints json verdict.

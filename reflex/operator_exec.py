@@ -8,7 +8,7 @@ SAFETY CONTRACT (cannot be bypassed by any model):
 2. Every action is pre-logged (PROPOSED), post-logged (APPLIED/REJECTED/FAILED) to the
    reflex ledger, and the file's pre-state is snapshotted for instant revert.
 3. grants.json forbidden_patterns checked at L0 — unmatched by design.
-4. Human review flag: --require-review mode logs proposals for Benton instead of applying.
+4. Human review flag: --require-review mode logs proposals for the owner instead of applying.
 """
 import json, os, re, shutil, sqlite3, sys, time, hashlib, difflib
 
