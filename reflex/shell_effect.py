@@ -72,6 +72,10 @@ def _read_only(words, rules):
             return False
     if "args_match" in rule and not all(re.fullmatch(rule["args_match"], a) for a in args):
         return False
+    if "first_match" in rule:
+        plain = [a for a in args if not a.startswith("-")]
+        if not plain or not re.fullmatch(rule["first_match"], plain[0]):
+            return False
     if "max_args" in rule and sum(1 for a in args if not a.startswith("-")) > rule["max_args"]:
         return False
     return True

@@ -385,6 +385,16 @@ Known limits of this version:
   variable prefixes all leave it `unknown`. It never assigns a write class. The starting
   list is deliberately short; `python -m reflex shell-commands` shows which commands a
   fleet runs and how each is classed, so the list can be extended from real use.
+  `curl` is an allow-list, not a deny-list: `http` and `https` only, and only flags
+  that neither send data nor write a file. Fetching a URL counts as reading, which is
+  a choice: a fetch can still reach a service that acts on a GET, and a replayed fetch
+  reads the web as it is now. `sed` may only print, delete, quit or substitute. `awk`
+  is left out because it can run commands and write files. These rules also decide
+  which commands `guard-check` will run, so they are edited by people, never by an
+  agent, and a new entry needs tests for the ways it could write.
+  A named tool is listed only if every use of it has one class. Tools that click or
+  type in a browser, run code, delegate, or read and write under one name stay
+  `unknown`. A tool that sends something to a person is `irreversible`.
   A span's class is set when it is imported. After any change to `side_effects.json` or
   the classifier, run the importer again or stored spans keep their old class.
   On the fleet 18.2% of 36,513 shell calls class as `read`. The rest is mostly not an
