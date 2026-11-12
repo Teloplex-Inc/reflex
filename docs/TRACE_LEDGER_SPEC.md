@@ -167,8 +167,8 @@ Answered by the fleet on 2026-11-11:
   `estimated_cost_usd`, marked `estimate`.
 - `active = 0` marks messages that were compacted or superseded. They are real work.
   They are still skipped, with compressed-summary rows, so a compacted session can show
-  fewer steps than it ran, though its tokens and cost are whole. Importing them is open
-  (section 10).
+  fewer steps than it ran, though its tokens and cost are whole. Many have an identical
+  active copy, so importing them would double-count (section 9).
 - `effect_disposition` is empty on the fleet and cannot feed `side_effect`.
 
 ### 4.2 Proxy capture
@@ -312,8 +312,8 @@ recur; they cover 49.1% of traces and 15.3% of tokens. Four clusters (0.1% of to
 pass the candidate rule; almost every recurring cluster is blocked because it uses the
 shell tool, which has no side-effect class (36,421 calls). Ten one-off traces hold 23%
 of all tokens. Cost came out as $0.00 against $1,443.49
-estimated in `state.db`; the fallback described in section 4.1 fixes this and awaits a
-re-run.
+estimated in `state.db`; with the fallback described in section 4.1 the third run
+reconciled exactly ($1,443.78 on both sides).
 
 Not built: the compile-coverage test (section 6.1), retention settings, and a gateway
 that calls `record_exchange`.
@@ -323,8 +323,17 @@ Known limits of this version:
 - Hermes cost is exact for one-turn sessions and an estimate for multi-turn sessions
   (section 4.1). Sessions that have usage but no user turn are counted and reported by
   `import-hermes`, not imported.
-- A cluster that uses a general-purpose tool such as a shell cannot be classified by tool
-  name alone. The candidate rule will need to look at the command, not only the tool.
+- A shell tool is classified by its command, not its name (`reflex/shell_effect.py`,
+  rules under `_shell` in `side_effects.json`). A command is `read` only when the whole
+  of it is plain commands joined by `|`, `&&`, `||` or `;`, each a listed read-only
+  program with no flag that writes or runs something. Substitution, redirects (other
+  than stderr to `/dev/null` or `2>&1`), background jobs, several lines, paths and
+  variable prefixes all leave it `unknown`. It never assigns a write class. The starting
+  list is deliberately short; `python -m reflex shell-commands` shows which commands a
+  fleet runs and how each is classed, so the list can be extended from real use. Not yet
+  run on fleet data.
+- Importing Hermes messages with `active = 0` would double-count: on the fleet 24,589 of
+  them have an identical active copy in the same session. They stay skipped.
 - The OTLP attribute names in `otlp.ATTRS` are candidates, not checked against one
   pinned convention version.
 - Proxy import understands OpenAI-style chat requests. A new trace starts at each new
@@ -362,6 +371,3 @@ the fleet so no script can pick a different file.
    64 KB inline limit the right cut?
 4. Which outcome sources can be added cheaply after the regex: an explicit accept or
    reject command, or a verifier run per cluster?
-5. Should Hermes messages with `active = 0` be imported? They are real steps, but it is
-   not yet known whether any of them duplicate an active message (an edited or retried
-   turn), which would double-count work.

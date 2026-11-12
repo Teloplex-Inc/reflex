@@ -14,6 +14,7 @@ import sqlite3
 import time
 
 from reflex import redact as _redact
+from reflex import shell_effect
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_LEDGER = os.path.expanduser("~/.hermes/reflex/ledger.db")
@@ -31,6 +32,7 @@ _BLOB_NAME = re.compile(r"[0-9a-f]{64}")
 TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
 
 _side_effects = None
+_shell = {}
 
 
 def ledger_path(path=None):
@@ -72,12 +74,36 @@ def blob_dir(con):
     return os.path.join(os.path.dirname(_db_file(con)) or ".", "blobs")
 
 
-def side_effect_of(tool_name):
-    """Side-effect class from the static table. Never derived from model output."""
-    global _side_effects
+def _load_side_effects():
+    global _side_effects, _shell
     if _side_effects is None:
         with open(os.path.join(HERE, "side_effects.json"), encoding="utf-8") as f:
-            _side_effects = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+            data = json.load(f)
+        _shell = data.get("_shell") or {}
+        _side_effects = {k: v for k, v in data.items() if not k.startswith("_")}
+
+
+def shell_command(tool_name, tool_input):
+    """The command a shell tool call runs, or None if the tool is not a shell tool."""
+    _load_side_effects()
+    key = (_shell.get("tools") or {}).get(tool_name or "")
+    if key is None:
+        return None
+    if isinstance(tool_input, str):
+        try:
+            tool_input = json.loads(tool_input)
+        except ValueError:
+            return ""
+    return tool_input.get(key) or "" if isinstance(tool_input, dict) else ""
+
+
+def side_effect_of(tool_name, tool_input=None):
+    """Side-effect class from the static table. Never derived from model output.
+    A shell tool is classified by the command in its input, against the same table."""
+    _load_side_effects()
+    command = shell_command(tool_name, tool_input)
+    if command is not None:
+        return shell_effect.classify(command, _shell.get("read_commands") or {})
     return _side_effects.get(tool_name or "", "unknown")
 
 
@@ -185,7 +211,7 @@ def write_trace(con, trace, spans, replace=False):
             s.get("input_tokens"), s.get("output_tokens"), s.get("cache_read_tokens"),
             s.get("cache_write_tokens"), cost, basis if s["kind"] == "model_call" else None,
             s.get("status") or "ok", _redact.redact(s.get("error")),
-            side_effect_of(s.get("name")) if is_tool else None,
+            side_effect_of(s.get("name"), s.get("input")) if is_tool else None,
         ))
 
     model = [s for s in spans if s["kind"] == "model_call"]

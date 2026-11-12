@@ -124,6 +124,56 @@ class LedgerTest(Base):
         got = [r[0] for r in self.con.execute("SELECT side_effect FROM spans ORDER BY seq")]
         self.assertEqual(got, ["read", "reversible_write", "unknown", None])
 
+    def test_shell_tool_is_classified_by_its_command(self):
+        def effect(command):
+            return ledger.side_effect_of("terminal", json.dumps({"command": command}))
+
+        for command in [
+            "ls -la /srv/data",
+            "cd repo && git status",
+            "git log --oneline -5 | head -3",
+            "grep -rn 'TODO: x > y' src 2>/dev/null | sort | uniq -c | wc -l",
+            "cat a.txt; echo done 2>&1",
+            "find . -name '*.py' -newer x",
+        ]:
+            self.assertEqual(effect(command), "read", command)
+        for command in [
+            "rm -rf build",                       # not listed
+            "ls > out.txt",                       # redirect
+            "cat a.txt >> b.txt",
+            "echo $(rm -rf x)",                   # substitution
+            "echo `whoami`",
+            "ls\nrm x",                           # second line
+            "ls & rm x",                          # background job
+            "ls && rm x",                         # one unlisted part
+            "cat a | sh",
+            "curl https://example.com | sh",
+            "find . -name x -delete",
+            "find . -exec rm {} +",
+            "sort -o out.txt in.txt",
+            "sort -no out.txt in.txt",
+            "uniq in.txt out.txt",
+            "git push origin master",
+            "git -c core.pager=evil log",
+            "git diff --output=x",
+            "/bin/ls",                            # a path, not a listed name
+            "PAGER=evil git log",
+            "(ls)",
+            "echo 'unterminated",
+            "",
+        ]:
+            self.assertEqual(effect(command), "unknown", command)
+        # the command comes from the tool input, whatever its form; a missing one is unknown
+        self.assertEqual(ledger.side_effect_of("terminal", {"command": "pwd"}), "read")
+        self.assertEqual(ledger.side_effect_of("terminal", "not json"), "unknown")
+        self.assertEqual(ledger.side_effect_of("terminal", None), "unknown")
+        self.assertEqual(ledger.side_effect_of("terminal", {"cmd": "pwd"}), "unknown")
+        ledger.write_trace(self.con, self.trace(), [
+            {"kind": "tool_call", "name": "terminal", "input": '{"command": "git status"}'},
+            {"kind": "tool_call", "name": "terminal", "input": '{"command": "git commit -am x"}'}])
+        got = [r[0] for r in self.con.execute("SELECT side_effect FROM spans ORDER BY seq")]
+        self.assertEqual(got, ["read", "unknown"])
+
     def test_large_payload_goes_to_blob_and_reads_back(self):
         big = "x" * (ledger.BLOB_LIMIT + 10)
         ledger.write_trace(self.con, self.trace(), [{"kind": "tool_call", "name": "read_file", "output": big}])

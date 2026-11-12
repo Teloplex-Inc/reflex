@@ -10,6 +10,7 @@ trace ledger
   python -m reflex import-proxy CAPTURE.jsonl       traces from a model-gateway capture log
   python -m reflex import-otlp TRACES.jsonl         traces from an OpenTelemetry JSON export
   python -m reflex backfill-outcomes                copy existing hindsight labels into outcomes
+  python -m reflex shell-commands [--top N]         which shell commands run, and how each is classed
   python -m reflex report [--json] [--min-count N]  where the tokens go and which work recurs
 
 decision models
@@ -84,6 +85,25 @@ def main():
         written, skipped, spans_skipped, bad = otlp.import_file(con, rest[0])
         print("otlp: %d traces written, %d already present, %d spans without model or tool "
               "attributes skipped, %d unreadable lines" % (written, skipped, spans_skipped, bad))
+        return 0
+    if cmd == "shell-commands":
+        top = int(rest[rest.index("--top") + 1]) if "--top" in rest else 60
+        con = ledger.connect(path)
+        counts, example = {}, {}
+        for name, stored, effect in con.execute(
+                "SELECT name, input, side_effect FROM spans WHERE kind = 'tool_call'"):
+            command = ledger.shell_command(name, ledger.read_payload(con, stored))
+            if command is None:
+                continue
+            key = (effect, ledger.shell_effect.shape(command))
+            counts[key] = counts.get(key, 0) + 1
+            example.setdefault(key, " ".join(command.split())[:140])
+        total = sum(counts.values())
+        read = sum(n for (effect, _), n in counts.items() if effect == "read")
+        print("shell tool calls: %d, classified read: %d (%.1f%%), distinct shapes: %d" % (
+            total, read, 100.0 * read / total if total else 0.0, len(counts)))
+        for (effect, shape), n in sorted(counts.items(), key=lambda kv: -kv[1])[:top]:
+            print("%7d  %-8s %s\n         e.g. %s" % (n, effect, shape[:100], example[(effect, shape)]))
         return 0
     if cmd == "backfill-outcomes":
         con = ledger.connect(path)
