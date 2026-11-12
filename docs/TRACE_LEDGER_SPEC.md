@@ -337,6 +337,14 @@ Known limits of this version:
   allow-list problem: scripts passed inline or by file name (about 12,000 calls) and
   `ssh` (about 5,000), whose remote command the local classifier cannot vouch for. Both
   stay `unknown` by design. No new cluster became a candidate.
+- The report also nominates a recurring cluster with unclassified tools as a "candidate
+  on outcomes" when it has at least `min_count` labelled runs and every one is
+  satisfied. It is counted apart from ordinary candidates. Outcome evidence shows the
+  work goes well; it does not show a step is safe to run twice or to skip, so such a
+  route may be compiled and shadowed but gets no skip stage until its tools are
+  classified. Scheduled runs have no user reply, so the hindsight labels never cover
+  them; they need another outcome source (section 10, question 4) before this rule can
+  nominate them.
 - Importing Hermes messages with `active = 0` would double-count: on the fleet 24,589 of
   them have an identical active copy in the same session. They stay skipped.
 - The OTLP attribute names in `otlp.ATTRS` are candidates, not checked against one

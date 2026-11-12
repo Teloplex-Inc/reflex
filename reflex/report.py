@@ -28,6 +28,7 @@ MIN_SATISFIED = 0.8      # placeholder: satisfied share among labelled traces fo
 HEAD_TOKENS = 4          # placeholder: leading request tokens that key a cluster with tools
 TEMPLATE_TOKENS = 12     # placeholder: request tokens that key a cluster without tools
 SAFE_EFFECTS = {"read", "reversible_write"}
+LARGEST_SESSIONS = 10    # sessions listed in the "largest sessions" section
 
 _SUBS = [
     (re.compile(r"https?://\S+"), "<url>"),
@@ -75,7 +76,7 @@ def _pct(part, whole):
 def build(con, min_count=MIN_COUNT, top=20):
     traces = con.execute(
         "SELECT trace_id, session_id, session_kind, request, input_tokens, output_tokens, "
-        "cache_read_tokens, cost_usd, backfilled FROM traces ORDER BY trace_id").fetchall()
+        "cache_read_tokens, cost_usd, backfilled, n_model_calls FROM traces ORDER BY trace_id").fetchall()
     tools, effects, unclassified, unknown_calls = {}, {}, {}, {}
     for tid, name, effect in con.execute(
             "SELECT trace_id, name, side_effect FROM spans WHERE kind = 'tool_call' ORDER BY trace_id, seq"):
@@ -90,11 +91,25 @@ def build(con, min_count=MIN_COUNT, top=20):
             "SELECT trace_id, label, strength FROM outcomes ORDER BY trace_id, ts, outcome_id"):
         latest[tid] = (label, strength)
 
-    kinds, clusters, jobs = {}, {}, {}
+    kinds, clusters, jobs, sessions = {}, {}, {}, {}
     tot = {"traces": len(traces), "with_tokens": 0, "input": 0, "output": 0, "cache_read": 0,
            "cost_usd": 0.0, "cost_known": 0, "backfilled": 0}
-    for tid, sid, kind, request, inp, out, cread, cost, backfilled in traces:
+    for tid, sid, kind, request, inp, out, cread, cost, backfilled, n_model in traces:
         tokens = None if inp is None or out is None else inp + out
+        if tokens is not None and sid:
+            # per session, not per trace: a session's tokens are exact, their split across
+            # its turns is an estimate
+            s = sessions.setdefault(sid, {"session": sid, "kind": kind, "turns": 0, "tokens": 0, "input": 0,
+                                          "cache_read": 0, "model_calls": 0, "cost_usd": 0.0,
+                                          "example": None})
+            s["turns"] += 1
+            s["tokens"] += tokens
+            s["input"] += inp
+            s["cache_read"] += cread or 0
+            s["model_calls"] += n_model or 0
+            s["cost_usd"] += cost or 0.0
+            if s["example"] is None and request:
+                s["example"] = " ".join(request.split())[:120]
         k = kinds.setdefault(kind, {"traces": 0, "input": 0, "output": 0, "cost_usd": 0.0})
         k["traces"] += 1
         tot["backfilled"] += 1 if backfilled else 0
@@ -142,6 +157,10 @@ def build(con, min_count=MIN_COUNT, top=20):
         recurring = c["count"] >= min_count
         if not recurring:
             verdict = "not recurring"
+        elif c["effects"] - SAFE_EFFECTS == {"unknown"} and labelled >= min_count and satisfied == labelled:
+            # tools nobody has classified, but every labelled run was satisfied: nominated on
+            # outcome evidence alone. This says the work goes well, not that it is safe to repeat.
+            verdict = "candidate on outcomes"
         elif not safe:
             verdict = "blocked: " + ", ".join(sorted(c["effects"] - SAFE_EFFECTS)) + " tools"
         elif labelled == 0:
@@ -164,6 +183,8 @@ def build(con, min_count=MIN_COUNT, top=20):
 
     recurring = [r for r in rows if r["count"] >= min_count]
     candidates = [r for r in rows if r["verdict"] == "candidate"]
+    on_outcomes = [r for r in rows if r["verdict"] == "candidate on outcomes"]
+    big = sorted(sessions.values(), key=lambda s: (-s["tokens"], s["session"]))
     return {
         "totals": {
             "traces": tot["traces"], "traces_with_token_counts": tot["with_tokens"],
@@ -184,6 +205,20 @@ def build(con, min_count=MIN_COUNT, top=20):
             "recurring_token_share_pct": _pct(sum(r["tokens"] for r in recurring), total_tokens),
             "candidate_clusters": len(candidates),
             "candidate_token_share_pct": _pct(sum(r["tokens"] for r in candidates), total_tokens),
+            "outcome_candidate_clusters": len(on_outcomes),
+            "outcome_candidate_token_share_pct": _pct(sum(r["tokens"] for r in on_outcomes), total_tokens),
+        },
+        "sessions": {
+            "count": len(big),
+            "largest_token_share_pct": _pct(sum(s["tokens"] for s in big[:LARGEST_SESSIONS]), total_tokens),
+            "largest": [
+                {"session": s["session"], "kind": s["kind"], "turns": s["turns"], "tokens": s["tokens"],
+                 "token_share_pct": _pct(s["tokens"], total_tokens), "cost_usd": round(s["cost_usd"], 4),
+                 "model_calls": s["model_calls"],
+                 "input_per_model_call": s["input"] // s["model_calls"] if s["model_calls"] else None,
+                 "cached_share_of_input_pct": _pct(s["cache_read"], s["input"]),
+                 "example": s["example"]}
+                for s in big[:LARGEST_SESSIONS]],
         },
         "scheduled_jobs": [
             {"job": name, "runs": j["runs"], "tokens": j["tokens"],
@@ -229,7 +264,22 @@ def render(rep):
             _n(r["recurring_trace_share_pct"]), _n(r["recurring_token_share_pct"])),
         "  compile candidates: %s clusters, %s%% of tokens" % (
             _n(r["candidate_clusters"]), _n(r["candidate_token_share_pct"])),
+        "  candidates on outcomes only (unclassified tools, every labelled run satisfied): "
+        "%s clusters, %s%% of tokens" % (
+            _n(r["outcome_candidate_clusters"]), _n(r["outcome_candidate_token_share_pct"])),
     ]
+    s = rep["sessions"]
+    if s["largest"]:
+        out += ["", "Largest sessions (the %d largest of %s hold %s%% of tokens):" % (
+            len(s["largest"]), _n(s["count"]), _n(s["largest_token_share_pct"]))]
+        for x in s["largest"]:
+            out += [
+                "  %-12s %14s tokens (%s%%)  $%.2f  %s turns, %s model calls, %s input tokens per call, "
+                "%s%% cached" % (x["kind"], _n(x["tokens"]), _n(x["token_share_pct"]), x["cost_usd"],
+                                 _n(x["turns"]), _n(x["model_calls"]), _n(x["input_per_model_call"]),
+                                 _n(x["cached_share_of_input_pct"])),
+                "      %s%s" % (x["session"][:40], " | " + x["example"] if x["example"] else ""),
+            ]
     if rep["scheduled_jobs"]:
         out += ["", "Scheduled jobs (all runs of a job together, whatever tools each run used):"]
         for j in rep["scheduled_jobs"]:

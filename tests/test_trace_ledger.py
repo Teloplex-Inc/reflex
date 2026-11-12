@@ -544,6 +544,10 @@ class HermesImportTest(Base):
         self.assertEqual(hermes._share(None, [1, 2]), [None, None])
 
 
+def by_verdict(rep, verdict):
+    return [c["cluster"] for c in rep["clusters"] if c["verdict"] == verdict]
+
+
 class ReportTest(Base):
     def fill(self):
         for i in range(6):   # a recurring scheduled job, read-only, mostly satisfied
@@ -562,6 +566,13 @@ class ReportTest(Base):
                 "request": "deploy the site build %d" % (100 + i)},
                 [{"kind": "model_call", "name": "m", "input_tokens": 400, "output_tokens": 100},
                  {"kind": "tool_call", "name": "terminal"}])
+        for i in range(5):   # recurring, unclassified tool, but every run labelled satisfied
+            ledger.write_trace(self.con, {
+                "trace_id": "hb%d" % i, "source": "proxy", "session_id": "cron_beat_2026110%d" % i,
+                "session_kind": "cron", "request": "heartbeat"},
+                [{"kind": "model_call", "name": "m", "input_tokens": 90, "output_tokens": 10},
+                 {"kind": "tool_call", "name": "terminal", "input": {"command": "ssh box uptime"}}])
+            ledger.add_outcome(self.con, "hb%d" % i, "verifier", "satisfied", "outcome", ts=i)
         ledger.write_trace(self.con, {"trace_id": "one", "source": "hermes", "session_id": "s9",
                                       "session_kind": "interactive", "request": "a one-off question",
                                       "backfilled": True}, [{"kind": "model_call", "name": "unknown"}])
@@ -571,15 +582,21 @@ class ReportTest(Base):
         self.fill()
         rep = report.build(self.con, min_count=5)
         t = rep["totals"]
-        self.assertEqual((t["traces"], t["traces_with_token_counts"], t["backfilled_traces"]), (12, 11, 1))
-        self.assertEqual((t["input_tokens"], t["output_tokens"]), (7400, 1100))
-        self.assertEqual(t["cached_share_of_input_pct"], round(100.0 * 1800 / 7400, 1))
-        self.assertEqual(rep["by_session_kind"]["cron"]["traces"], 6)
+        self.assertEqual((t["traces"], t["traces_with_token_counts"], t["backfilled_traces"]), (17, 16, 1))
+        self.assertEqual((t["input_tokens"], t["output_tokens"]), (7850, 1150))
+        self.assertEqual(t["cached_share_of_input_pct"], round(100.0 * 1800 / 7850, 1))
+        self.assertEqual(rep["by_session_kind"]["cron"]["traces"], 11)
         job = rep["scheduled_jobs"][0]
         self.assertEqual((job["job"], job["runs"], job["tokens"], job["unknown_tool_calls"]),
                          ("cron_digest", 6, 6000, 0))
         r = rep["recurrence"]
-        self.assertEqual((r["clusters"], r["recurring_clusters"], r["candidate_clusters"]), (3, 2, 1))
+        self.assertEqual((r["clusters"], r["recurring_clusters"], r["candidate_clusters"]), (4, 3, 1))
+        # unclassified tools with every labelled run satisfied: counted apart from candidates
+        self.assertEqual(r["outcome_candidate_clusters"], 1)
+        self.assertEqual(by_verdict(rep, "candidate on outcomes"), ["cron | cron_beat | terminal"])
+        big = rep["sessions"]["largest"][0]
+        self.assertEqual((big["tokens"], big["turns"], big["model_calls"], big["input_per_model_call"]),
+                         (1000, 1, 1, 900))
         self.assertEqual(r["recurring_token_share_pct"], 100.0)
         by = {c["cluster"]: c for c in rep["clusters"]}
         digest = by["cron | cron_digest | web_search > read_file"]
@@ -594,7 +611,9 @@ class ReportTest(Base):
         b = report.render(report.build(self.con))
         self.assertEqual(a, b)
         self.assertIn("compile candidates: 1 clusters", a)
-        self.assertEqual(report.build(self.con)["unclassified_tools"], {"terminal": 5})
+        self.assertIn("candidates on outcomes only", a)
+        self.assertIn("Largest sessions", a)
+        self.assertEqual(report.build(self.con)["unclassified_tools"], {"terminal": 10})
 
     def test_empty_ledger(self):
         self.assertIn("no traces yet", report.render(report.build(self.con)))
