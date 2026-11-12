@@ -607,6 +607,13 @@ class OutcomeSourcesTest(Base):
                                {"id": "other", "job": "cron_nothing", "final_output_matches": "x"}])
         res = outcomes.verify(self.con, path)
         self.assertEqual((res["delivered"]["satisfied"], res["delivered"]["new"], res["other"]["runs"]), (4, 4, 0))
+        # requires_tool as a list: any one of them is enough
+        path = self.verifiers([{"id": "any", "job": "cron_digest", "requires_tool": [
+            {"name": "send_message"}, {"name": "terminal", "input_matches": "^.{0,20}ls"}]}])
+        self.assertEqual(outcomes.verify(self.con, path)["any"]["satisfied"], 1)
+        self.assertEqual(self.labels("verifier")["quiet"], "satisfied")
+        path = self.verifiers([{"id": "delivered", "job": "cron_digest", "final_output_matches": "."}])
+        outcomes.verify(self.con, path)
         # verifier labels do count toward a candidate on outcomes
         rep = report.build(self.con, min_count=4)
         self.assertEqual(rep["clusters"][0]["labels"], {"satisfied": 4})
@@ -614,7 +621,10 @@ class OutcomeSourcesTest(Base):
 
     def test_verifier_file_is_checked(self):
         from reflex import outcomes
-        for bad in ({"id": "x"}, [{"id": "x", "job": "j"}], [{"id": "x", "job": "j", "runs": "rm -rf /"}]):
+        for bad in ({"id": "x"}, [{"id": "x", "job": "j"}], [{"id": "x", "job": "j", "runs": "rm -rf /"}],
+                    [{"id": "x", "job": "j", "requires_tool": [{"input_matches": "a"}]}],
+                    [{"id": "x", "job": "j", "final_output_matches": "a"},
+                     {"id": "y", "job": "j", "final_output_matches": "b"}]):
             with self.assertRaises(RuntimeError):
                 outcomes.load_verifiers(self.verifiers(bad))
 
@@ -672,6 +682,15 @@ class ReportTest(Base):
         big = rep["sessions"]["largest"][0]
         self.assertEqual((big["tokens"], big["turns"], big["model_calls"], big["input_per_model_call"]),
                          (1000, 1, 1, 900))
+        # more input per recorded call than any context holds: calls are missing, no average given
+        ledger.write_trace(self.con, {"trace_id": "huge", "source": "hermes", "session_id": "long",
+                                      "session_kind": "interactive", "request": "continue",
+                                      "totals": {"input_tokens": 9000000, "output_tokens": 10}},
+                           [{"kind": "model_call", "name": "m"}])
+        big = report.build(self.con)["sessions"]["largest"][0]
+        self.assertEqual((big["session"], big["input_per_model_call"], big["calls_missing"]), ("long", None, True))
+        self.assertIn("most are missing", report.render(report.build(self.con)))
+        ledger.delete_trace(self.con, "huge")
         self.assertEqual(r["recurring_token_share_pct"], 100.0)
         by = {c["cluster"]: c for c in rep["clusters"]}
         digest = by["cron | cron_digest | web_search > read_file"]

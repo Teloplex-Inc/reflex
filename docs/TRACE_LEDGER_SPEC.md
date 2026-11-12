@@ -354,7 +354,16 @@ Known limits of this version:
     `strength = outcome`). A verifier reads the ledger and runs nothing. These labels
     do count. The file format is in the module's docstring.
   Both append a label only when a run has none from that source or its label changed.
-  Synthetic data only so far.
+  On the fleet, process labels marked 5,435 runs clean and none failed, so they carry
+  almost no information there. Three hand-written verifiers scored 77%, 31% and 46%
+  satisfied after two rounds of loosening their patterns. Part of each shortfall is the
+  pattern, not the job: a job's wording and tools drift over its history
+  (`requires_tool` now takes a list for that reason). A verifier's score cannot be read
+  as the job's success rate until a sample of its failures has been checked by a person.
+- The fleet's scheduled jobs are mostly open-ended working loops, not fixed routines:
+  the five largest took between 55 and 231 different tool sequences each. Sessions
+  whose history was compacted record only some of their model calls; the report says so
+  instead of printing an average input per call.
 - Importing Hermes messages with `active = 0` would double-count: on the fleet 24,589 of
   them have an identical active copy in the same session. They stay skipped.
 - The OTLP attribute names in `otlp.ATTRS` are candidates, not checked against one

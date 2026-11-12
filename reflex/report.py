@@ -29,6 +29,7 @@ HEAD_TOKENS = 4          # placeholder: leading request tokens that key a cluste
 TEMPLATE_TOKENS = 12     # placeholder: request tokens that key a cluster without tools
 SAFE_EFFECTS = {"read", "reversible_write"}
 LARGEST_SESSIONS = 10    # sessions listed in the "largest sessions" section
+MAX_CONTEXT = 2000000    # placeholder: more input per model call than this means calls are missing
 
 _SUBS = [
     (re.compile(r"https?://\S+"), "<url>"),
@@ -223,7 +224,11 @@ def build(con, min_count=MIN_COUNT, top=20):
                 {"session": s["session"], "kind": s["kind"], "turns": s["turns"], "tokens": s["tokens"],
                  "token_share_pct": _pct(s["tokens"], total_tokens), "cost_usd": round(s["cost_usd"], 4),
                  "model_calls": s["model_calls"],
-                 "input_per_model_call": s["input"] // s["model_calls"] if s["model_calls"] else None,
+                 # an impossible figure means the source no longer holds every call of the
+                 # session (compacted history), so the average is not reported
+                 "input_per_model_call": s["input"] // s["model_calls"]
+                 if s["model_calls"] and s["input"] // s["model_calls"] <= MAX_CONTEXT else None,
+                 "calls_missing": bool(s["model_calls"]) and s["input"] // s["model_calls"] > MAX_CONTEXT,
                  "cached_share_of_input_pct": _pct(s["cache_read"], s["input"]),
                  "example": s["example"]}
                 for s in big[:LARGEST_SESSIONS]],
@@ -282,10 +287,12 @@ def render(rep):
             len(s["largest"]), _n(s["count"]), _n(s["largest_token_share_pct"]))]
         for x in s["largest"]:
             out += [
-                "  %-12s %14s tokens (%s%%)  $%.2f  %s turns, %s model calls, %s input tokens per call, "
-                "%s%% cached" % (x["kind"], _n(x["tokens"]), _n(x["token_share_pct"]), x["cost_usd"],
-                                 _n(x["turns"]), _n(x["model_calls"]), _n(x["input_per_model_call"]),
-                                 _n(x["cached_share_of_input_pct"])),
+                "  %-12s %14s tokens (%s%%)  $%.2f  %s turns, %s model calls%s, %s%% cached" % (
+                    x["kind"], _n(x["tokens"]), _n(x["token_share_pct"]), x["cost_usd"],
+                    _n(x["turns"]), _n(x["model_calls"]),
+                    " recorded (most are missing: compacted history)" if x["calls_missing"]
+                    else ", %s input tokens per call" % _n(x["input_per_model_call"]),
+                    _n(x["cached_share_of_input_pct"])),
                 "      %s%s" % (x["session"][:40], " | " + x["example"] if x["example"] else ""),
             ]
     if rep["scheduled_jobs"]:

@@ -20,12 +20,17 @@ Verifiers file (default ~/.hermes/reflex/verifiers.json, or $REFLEX_VERIFIERS): 
       "requires_tool": {"name": "terminal", "input_matches": "send_digest\\\\.py"}}]
 
 "job" is a scheduled job's name as the report prints it. Every condition given must
-hold for a run to be "satisfied"; otherwise it is "failed". Patterns are regular
+hold for a run to be "satisfied"; otherwise it is "failed". "requires_tool" may also be
+a list of such objects, for a job that has done the same thing through different tools
+over time; one successful matching call of any of them is enough. Patterns are regular
 expressions, searched case-insensitively. Text in the ledger is redacted, so a pattern
 cannot match a secret.
 
-Both functions append only when a trace has no label yet from that source, or its label
-has changed since (a run that was still going at the last import).
+A job takes one verifier. A run's current label is its newest outcome row, so a changed
+verifier relabels the job's finished runs and the new labels take over. Labels from a
+verifier that was removed from the file stay until another one covers that job.
+
+Both functions append only when the newest label from that source would change.
 """
 import hashlib
 import json
@@ -39,15 +44,13 @@ DEFAULT_VERIFIERS = os.path.expanduser("~/.hermes/reflex/verifiers.json")
 CONDITIONS = ("final_output_matches", "final_output_not_matches", "requires_tool")
 
 
-def _last_label(con, trace_id, source, version):
-    row = con.execute(
-        "SELECT label FROM outcomes WHERE trace_id = ? AND source = ? AND labeler_version IS ? "
-        "ORDER BY ts DESC, outcome_id DESC LIMIT 1", (trace_id, source, version)).fetchone()
-    return row[0] if row else None
-
-
 def _record(con, trace_id, source, label, strength, evidence, version):
-    if _last_label(con, trace_id, source, version) == label:
+    # skip only if the newest row from this source already says the same thing for the same
+    # labeler; an older identical row may have been overtaken by another verifier since
+    last = con.execute(
+        "SELECT label, labeler_version FROM outcomes WHERE trace_id = ? AND source = ? "
+        "ORDER BY outcome_id DESC LIMIT 1", (trace_id, source)).fetchone()
+    if last == (label, version):
         return 0
     ledger.add_outcome(con, trace_id, source, label, strength, evidence=evidence, labeler_version=version)
     return 1
@@ -83,6 +86,13 @@ def load_verifiers(path=None):
             raise RuntimeError("each verifier needs an id and a job: %r" % (v,))
         if not any(c in v for c in CONDITIONS):
             raise RuntimeError("verifier %s has no condition (%s)" % (v["id"], ", ".join(CONDITIONS)))
+        for need in _as_list(v.get("requires_tool") or []):
+            if not isinstance(need, dict) or not need.get("name") or set(need) - {"name", "input_matches"}:
+                raise RuntimeError("verifier %s: requires_tool takes a name and an optional "
+                                   "input_matches: %r" % (v["id"], need))
+        if sum(1 for o in items if isinstance(o, dict) and o.get("job") == v["job"]) > 1:
+            # a run has one current label, so two verifiers for a job would overwrite each other
+            raise RuntimeError("more than one verifier for job %s; combine them into one" % v["job"])
         unknown = set(v) - set(CONDITIONS) - {"id", "job"}
         if unknown:
             raise RuntimeError("verifier %s has unknown keys: %s" % (v["id"], ", ".join(sorted(unknown))))
@@ -98,17 +108,25 @@ def _check(con, v, trace_id, final):
     rx = v.get("final_output_not_matches")
     if rx and re.search(rx, final, re.I):
         return "final output matches final_output_not_matches"
-    need = v.get("requires_tool")
-    if need:
-        rx = need.get("input_matches")
-        for (stored,) in con.execute(
-                "SELECT input FROM spans WHERE trace_id = ? AND kind = 'tool_call' AND name = ? "
-                "AND status = 'ok'", (trace_id, need.get("name"))):
-            if not rx or re.search(rx, ledger.read_payload(con, stored) or "", re.I):
-                break
-        else:
-            return "no successful %s call matching requires_tool" % need.get("name")
+    needs = v.get("requires_tool")
+    if needs and not any(_tool_ran(con, trace_id, need) for need in _as_list(needs)):
+        return "no successful %s call matching requires_tool" % " or ".join(
+            str(need.get("name")) for need in _as_list(needs))
     return None
+
+
+def _as_list(needs):
+    return needs if isinstance(needs, list) else [needs]
+
+
+def _tool_ran(con, trace_id, need):
+    rx = need.get("input_matches")
+    for (stored,) in con.execute(
+            "SELECT input FROM spans WHERE trace_id = ? AND kind = 'tool_call' AND name = ? "
+            "AND status = 'ok'", (trace_id, need.get("name"))):
+        if not rx or re.search(rx, ledger.read_payload(con, stored) or "", re.I):
+            return True
+    return False
 
 
 def verify(con, path=None):
