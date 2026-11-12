@@ -713,7 +713,7 @@ class AnalyzeTest(Base):
         self.assertNotIn("interactive", text)          # the one-call session is not this job's
         self.assertNotIn("left out", text)
         text = analyze.context(self.con, since=1.0)    # runs start at 0, 1 and 2 seconds
-        self.assertIn("since 1970-01-01", text)
+        self.assertIn("since 1970-01-01 00:00 UTC", text)
         self.assertIn("Carried content, 2 sessions with two or more model calls, 4,400 input tokens", text)
         self.assertIn("Carried content, 0 sessions", analyze.context(self.con, job="cron_nope"))
 

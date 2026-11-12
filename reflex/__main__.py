@@ -17,7 +17,7 @@ trace ledger
   python -m reflex job JOB [--samples N]            everything one scheduled job does, to write a route from
   python -m reflex guard-check ID [GUARDS.json]     run one guard's read-only check; log wake or skip
   python -m reflex guard-shadow [GUARDS.json]       compare the logged decisions with what the runs said
-  python -m reflex context [--job JOB] [--since YYYY-MM-DD]
+  python -m reflex context [--job JOB] [--since YYYY-MM-DD[THH:MM]]
                                                     what fills the prompt: fixed overhead and carried content
   python -m reflex report [--json] [--min-count N]  where the tokens go and which work recurs
 
@@ -135,10 +135,11 @@ def main():
         if "--since" in rest:
             import calendar
             import time
+            text = rest[rest.index("--since") + 1]
             try:
-                since = calendar.timegm(time.strptime(rest[rest.index("--since") + 1], "%Y-%m-%d"))
+                since = calendar.timegm(time.strptime(text, "%Y-%m-%dT%H:%M" if "T" in text else "%Y-%m-%d"))
             except ValueError:
-                raise RuntimeError("--since takes a date as YYYY-MM-DD (UTC)")
+                raise RuntimeError("--since takes YYYY-MM-DD or YYYY-MM-DDTHH:MM, in UTC")
         print(analyze.context(ledger.connect(path), job, since))
         return 0
     if cmd == "guard-check" and rest:

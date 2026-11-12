@@ -1,7 +1,7 @@
 """Two read-only views of the ledger, for deciding what to build.
 
     python -m reflex job JOB        everything one scheduled job does, to write a route from
-    python -m reflex context [--job JOB] [--since YYYY-MM-DD]
+    python -m reflex context [--job JOB] [--since YYYY-MM-DD[THH:MM]]
                                     what fills the prompt: fixed overhead and carried content
 
 Neither calls a model or changes anything. Both print stored text, which is redacted,
@@ -195,7 +195,7 @@ def context(con, job=None, since=None):
                 raw[cat] = raw.get(cat, 0) + sz
 
     title = "REFLEX CONTEXT" + (" for job %s" % job if job else "") + (
-        time.strftime(" since %Y-%m-%d", time.gmtime(since)) if since is not None else "")
+        time.strftime(" since %Y-%m-%d %H:%M UTC", time.gmtime(since)) if since is not None else "")
     out = [title, "", "Fixed prompt (input tokens of sessions that made one model call):"]
     if not single:
         out.append("  no such sessions in the ledger")

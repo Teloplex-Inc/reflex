@@ -247,7 +247,7 @@ Two further read-only views, in `reflex/analyze.py`:
   from sessions that made one model call. Carried content is each message and tool
   result weighted by the model calls that follow it in its session. Both are estimates:
   four bytes a token, and nothing assumed dropped, so compaction makes the true carried
-  share lower. `--job JOB` and `--since YYYY-MM-DD` (UTC) limit it to one scheduled job's
+  share lower. `--job JOB` and `--since YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` (UTC) limit it to one scheduled job's
   sessions or to sessions begun from a date, to compare jobs or to measure a
   configuration change before and after. It also prints the input per model call that
   ledger content does not explain: an upper bound on the fixed prompt where no session
