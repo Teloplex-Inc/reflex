@@ -629,6 +629,58 @@ class OutcomeSourcesTest(Base):
                 outcomes.load_verifiers(self.verifiers(bad))
 
 
+class AnalyzeTest(Base):
+    def fill(self):
+        for i in range(3):   # a scheduled job: one command, two kinds of reply
+            ledger.write_trace(self.con, {
+                "trace_id": "j%d" % i, "source": "proxy", "session_id": "cron_beat_2026110%d" % i,
+                "session_kind": "cron", "request": "check the queue for 2026-11-0%d" % i, "started_at": float(i),
+                "final_output": "Queue: no items" if i else "Queue: 2 items handled"},
+                [{"kind": "model_call", "name": "m", "input_tokens": 1000, "output_tokens": 10,
+                  "output": "x" * 40},
+                 {"kind": "tool_call", "name": "terminal", "input": {"command": "cat queue.md | head -5"},
+                  "output": "y" * 400},
+                 {"kind": "model_call", "name": "m", "input_tokens": 1200, "output_tokens": 10, "output": "done"}])
+            ledger.add_outcome(self.con, "j%d" % i, "verifier", "satisfied", "outcome", ts=i)
+        # a one-call session, and one whose recorded calls cannot account for its tokens
+        ledger.write_trace(self.con, {"trace_id": "one", "source": "proxy", "session_id": "solo",
+                                      "session_kind": "interactive", "request": "hi"},
+                           [{"kind": "model_call", "name": "m", "input_tokens": 5000, "output_tokens": 5}])
+        ledger.write_trace(self.con, {"trace_id": "huge", "source": "hermes", "session_id": "long",
+                                      "session_kind": "interactive", "request": "continue",
+                                      "totals": {"input_tokens": 9000000, "output_tokens": 10}},
+                           [{"kind": "model_call", "name": "m"}, {"kind": "model_call", "name": "m"}])
+        self.con.commit()
+
+    def test_job_profile(self):
+        from reflex import analyze
+        self.fill()
+        text = analyze.job_profile(self.con, "cron_beat")
+        self.assertIn("Runs: 3  (completed 3)", text)
+        self.assertIn("Tokens: 6,660 in all, median 2,220 a run; model calls a run: median 2", text)
+        self.assertIn("Outcomes: verifier satisfied 3", text)
+        self.assertIn("Request (1 distinct", text)
+        self.assertIn("    3  terminal", text)                    # one tool sequence, three runs
+        self.assertIn("    3  read     cat ; head", text)         # the command shape and its class
+        self.assertIn("Final outputs (2 distinct", text)
+        self.assertIn("x2\n    Queue: no items", text)
+        with self.assertRaisesRegex(RuntimeError, "Jobs: cron_beat"):
+            analyze.job_profile(self.con, "cron_nope")
+
+    def test_context(self):
+        from reflex import analyze
+        self.fill()
+        text = analyze.context(self.con)
+        self.assertIn("interactive       1 sessions  median 5,000", text)
+        self.assertIn("Carried content, 3 sessions with two or more model calls, 6,600 input tokens", text)
+        self.assertIn("(1 sessions left out", text)
+        # per session: the request (31 bytes) reaches both calls; the first reply (40) and the
+        # tool result (400) reach the second call only; the last reply reaches none
+        self.assertIn("content in the ledger accounts for about 375 tokens", text)
+        row = [l for l in text.splitlines() if l.strip().startswith("tool result: terminal")][0].split()
+        self.assertEqual(row[3:], ["300", "4.5%", "1,200"])
+
+
 def by_verdict(rep, verdict):
     return [c["cluster"] for c in rep["clusters"] if c["verdict"] == verdict]
 

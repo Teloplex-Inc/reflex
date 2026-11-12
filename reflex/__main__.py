@@ -13,6 +13,8 @@ trace ledger
   python -m reflex label-process                    label finished runs clean or failed (weak evidence)
   python -m reflex verify [VERIFIERS.json]          apply your per-job checks to scheduled runs
   python -m reflex shell-commands [--top N]         which shell commands run, and how each is classed
+  python -m reflex job JOB [--samples N]            everything one scheduled job does, to write a route from
+  python -m reflex context                          what fills the prompt: fixed overhead and carried content
   python -m reflex report [--json] [--min-count N]  where the tokens go and which work recurs
 
 decision models
@@ -107,6 +109,15 @@ def main():
             total, read, 100.0 * read / total if total else 0.0, len(counts)))
         for (effect, shape), n in sorted(counts.items(), key=lambda kv: -kv[1])[:top]:
             print("%7d  %-8s %s\n         e.g. %s" % (n, effect, shape[:100], example[(effect, shape)]))
+        return 0
+    if cmd == "job" and rest:
+        from reflex import analyze
+        samples = int(rest[rest.index("--samples") + 1]) if "--samples" in rest else 5
+        print(analyze.job_profile(ledger.connect(path), rest[0], samples))
+        return 0
+    if cmd == "context":
+        from reflex import analyze
+        print(analyze.context(ledger.connect(path)))
         return 0
     if cmd == "label-process":
         from reflex import outcomes

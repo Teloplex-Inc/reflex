@@ -238,6 +238,17 @@ Clustering in v1 is deliberately simple and deterministic:
 This will under-merge. That is acceptable for a first measurement, and it avoids an
 embedding dependency.
 
+Two further read-only views, in `reflex/analyze.py`:
+
+- `python -m reflex job JOB` prints everything one scheduled job does: its request, its
+  tool sequences, its shell commands by shape, its other tool inputs and its kinds of
+  final output. It is the material a route for that job is written from.
+- `python -m reflex context` estimates what fills the prompt. The fixed prompt is read
+  from sessions that made one model call. Carried content is each message and tool
+  result weighted by the model calls that follow it in its session. Both are estimates:
+  four bytes a token, and nothing assumed dropped, so compaction makes the true carried
+  share lower.
+
 ### 6.1 The compile-coverage test
 
 A one-off experiment on top of the report, run by hand:
