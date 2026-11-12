@@ -330,8 +330,13 @@ Known limits of this version:
   than stderr to `/dev/null` or `2>&1`), background jobs, several lines, paths and
   variable prefixes all leave it `unknown`. It never assigns a write class. The starting
   list is deliberately short; `python -m reflex shell-commands` shows which commands a
-  fleet runs and how each is classed, so the list can be extended from real use. Not yet
-  run on fleet data.
+  fleet runs and how each is classed, so the list can be extended from real use.
+  A span's class is set when it is imported. After any change to `side_effects.json` or
+  the classifier, run the importer again or stored spans keep their old class.
+  On the fleet 18.2% of 36,513 shell calls class as `read`. The rest is mostly not an
+  allow-list problem: scripts passed inline or by file name (about 12,000 calls) and
+  `ssh` (about 5,000), whose remote command the local classifier cannot vouch for. Both
+  stay `unknown` by design. No new cluster became a candidate.
 - Importing Hermes messages with `active = 0` would double-count: on the fleet 24,589 of
   them have an identical active copy in the same session. They stay skipped.
 - The OTLP attribute names in `otlp.ATTRS` are candidates, not checked against one

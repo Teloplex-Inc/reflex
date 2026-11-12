@@ -7,7 +7,7 @@
   "write_file": "reversible_write",
   "patch": "reversible_write",
   "_shell": {
-    "_note": "Shell tools are classified by their command, not their name (see shell_effect.py). 'tools' maps a tool name to the argument that holds the command. 'read_commands' lists programs that only read; 'deny' holds argument prefixes that make one write or run something, 'deny_short' single-letter flags that do, 'sub' the allowed subcommands, 'max_args' the most non-flag arguments allowed. A command is 'read' only if every part of it is listed and clean; otherwise it is 'unknown'. This list is a conservative start, to be extended from the commands a fleet actually runs (python -m reflex shell-commands).",
+    "_note": "Shell tools are classified by their command, not their name (see shell_effect.py). 'tools' maps a tool name to the argument that holds the command. 'read_commands' lists programs that only read; 'deny' holds argument prefixes that make one write or run something, 'deny_short' single-letter flags that do, 'sub' the allowed subcommands, 'max_args' the most non-flag arguments allowed, 'args_match' a pattern every argument must match in full. A command is 'read' only if every part of it is listed and clean; otherwise it is 'unknown'. This list is a conservative start, to be extended from the commands a fleet actually runs (python -m reflex shell-commands).",
     "tools": {"terminal": "command"},
     "read_commands": {
       "ls": {}, "cat": {}, "head": {}, "tail": {}, "wc": {}, "grep": {}, "pwd": {}, "cd": {},
@@ -16,6 +16,7 @@
       "id": {}, "true": {}, "test": {}, "jq": {},
       "hostname": {"max_args": 0, "deny": ["--file", "--boot"], "deny_short": "Fb"},
       "uniq": {"max_args": 0},
+      "date": {"args_match": "-u|--utc|[+].*"},
       "sort": {"deny": ["--output", "--compress-program"], "deny_short": "o"},
       "file": {"deny": ["--compile"], "deny_short": "C"},
       "rg": {"deny": ["--pre", "--hostname-bin"]},

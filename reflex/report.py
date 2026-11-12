@@ -76,20 +76,21 @@ def build(con, min_count=MIN_COUNT, top=20):
     traces = con.execute(
         "SELECT trace_id, session_id, session_kind, request, input_tokens, output_tokens, "
         "cache_read_tokens, cost_usd, backfilled FROM traces ORDER BY trace_id").fetchall()
-    tools, effects, unclassified = {}, {}, {}
+    tools, effects, unclassified, unknown_calls = {}, {}, {}, {}
     for tid, name, effect in con.execute(
             "SELECT trace_id, name, side_effect FROM spans WHERE kind = 'tool_call' ORDER BY trace_id, seq"):
         tools.setdefault(tid, []).append(name)
         effects.setdefault(tid, set()).add(effect or "unknown")
         if (effect or "unknown") == "unknown":
             unclassified[name or "?"] = unclassified.get(name or "?", 0) + 1
+            unknown_calls[tid] = unknown_calls.get(tid, 0) + 1
     # one label per trace: its most recent outcome row
     latest = {}
     for tid, label, strength in con.execute(
             "SELECT trace_id, label, strength FROM outcomes ORDER BY trace_id, ts, outcome_id"):
         latest[tid] = (label, strength)
 
-    kinds, clusters = {}, {}
+    kinds, clusters, jobs = {}, {}, {}
     tot = {"traces": len(traces), "with_tokens": 0, "input": 0, "output": 0, "cache_read": 0,
            "cost_usd": 0.0, "cost_known": 0, "backfilled": 0}
     for tid, sid, kind, request, inp, out, cread, cost, backfilled in traces:
@@ -108,6 +109,16 @@ def build(con, min_count=MIN_COUNT, top=20):
             tot["cost_usd"] += cost
             tot["cost_known"] += 1
             k["cost_usd"] += cost
+        if kind == "cron":
+            # a scheduled job recurs by definition, however much its tool sequence varies
+            j = jobs.setdefault(job_name(sid), {"runs": 0, "tokens": 0, "cost_usd": 0.0, "sigs": set(),
+                                                "tool_calls": 0, "unknown_calls": 0})
+            j["runs"] += 1
+            j["tokens"] += tokens or 0
+            j["cost_usd"] += cost or 0.0
+            j["sigs"].add(signature(tools.get(tid, [])))
+            j["tool_calls"] += len(tools.get(tid, []))
+            j["unknown_calls"] += unknown_calls.get(tid, 0)
         key = cluster_key(kind, sid, signature(tools.get(tid, [])), request)
         c = clusters.setdefault(key, {"key": key, "kind": kind, "count": 0, "tokens": [], "cost_usd": 0.0,
                                       "labels": {}, "effects": set(), "example": None})
@@ -174,6 +185,13 @@ def build(con, min_count=MIN_COUNT, top=20):
             "candidate_clusters": len(candidates),
             "candidate_token_share_pct": _pct(sum(r["tokens"] for r in candidates), total_tokens),
         },
+        "scheduled_jobs": [
+            {"job": name, "runs": j["runs"], "tokens": j["tokens"],
+             "token_share_pct": _pct(j["tokens"], total_tokens), "cost_usd": round(j["cost_usd"], 4),
+             "tool_sequences": len(j["sigs"]), "tool_calls": j["tool_calls"],
+             "unknown_tool_calls": j["unknown_calls"]}
+            for name, j in sorted(jobs.items(), key=lambda kv: (-kv[1]["tokens"], kv[0]))
+            if j["runs"] >= min_count][:top or None],
         "clusters": rows[:top] if top else rows,
         "unclassified_tools": dict(sorted(unclassified.items(), key=lambda kv: (-kv[1], kv[0]))),
         "placeholders": {"min_count": min_count, "min_satisfied": MIN_SATISFIED,
@@ -211,8 +229,14 @@ def render(rep):
             _n(r["recurring_trace_share_pct"]), _n(r["recurring_token_share_pct"])),
         "  compile candidates: %s clusters, %s%% of tokens" % (
             _n(r["candidate_clusters"]), _n(r["candidate_token_share_pct"])),
-        "", "Top clusters by tokens:",
     ]
+    if rep["scheduled_jobs"]:
+        out += ["", "Scheduled jobs (all runs of a job together, whatever tools each run used):"]
+        for j in rep["scheduled_jobs"]:
+            out.append("  %-28s x%-5d %14s tokens (%s%%)  $%.2f  %d tool sequences  %s of %s tool calls unclassified" % (
+                j["job"][:28], j["runs"], _n(j["tokens"]), _n(j["token_share_pct"]), j["cost_usd"],
+                j["tool_sequences"], _n(j["unknown_tool_calls"]), _n(j["tool_calls"])))
+    out += ["", "Top clusters by tokens:"]
     for c in rep["clusters"]:
         labels = ", ".join("%s %d" % kv for kv in c["labels"].items()) or "no outcomes"
         out += [

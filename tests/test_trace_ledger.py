@@ -135,6 +135,8 @@ class LedgerTest(Base):
             "grep -rn 'TODO: x > y' src 2>/dev/null | sort | uniq -c | wc -l",
             "cat a.txt; echo done 2>&1",
             "find . -name '*.py' -newer x",
+            "date -u +%Y-%m-%d",
+            "date",
         ]:
             self.assertEqual(effect(command), "read", command)
         for command in [
@@ -159,7 +161,10 @@ class LedgerTest(Base):
             "file --comp magic",
             "hostname newname",                   # sets the host name
             "hostname -F /etc/hostname",
-            "date -s tomorrow",                   # date can set the clock, so it is not listed
+            "date -s tomorrow",                   # date may only print: -u and a +FORMAT
+            "date 010112002026",
+            "date -us now",
+            "date --set=now",
             "git push origin master",
             "git -c core.pager=evil log",
             "git diff --output=x",
@@ -570,6 +575,9 @@ class ReportTest(Base):
         self.assertEqual((t["input_tokens"], t["output_tokens"]), (7400, 1100))
         self.assertEqual(t["cached_share_of_input_pct"], round(100.0 * 1800 / 7400, 1))
         self.assertEqual(rep["by_session_kind"]["cron"]["traces"], 6)
+        job = rep["scheduled_jobs"][0]
+        self.assertEqual((job["job"], job["runs"], job["tokens"], job["unknown_tool_calls"]),
+                         ("cron_digest", 6, 6000, 0))
         r = rep["recurrence"]
         self.assertEqual((r["clusters"], r["recurring_clusters"], r["candidate_clusters"]), (3, 2, 1))
         self.assertEqual(r["recurring_token_share_pct"], 100.0)

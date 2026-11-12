@@ -70,6 +70,8 @@ def _read_only(words, rules):
             return False
         if a.startswith("-") and not a.startswith("--") and set(a[1:]) & set(rule.get("deny_short", "")):
             return False
+    if "args_match" in rule and not all(re.fullmatch(rule["args_match"], a) for a in args):
+        return False
     if "max_args" in rule and sum(1 for a in args if not a.startswith("-")) > rule["max_args"]:
         return False
     return True
