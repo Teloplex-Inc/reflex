@@ -249,6 +249,20 @@ Two further read-only views, in `reflex/analyze.py`:
   four bytes a token, and nothing assumed dropped, so compaction makes the true carried
   share lower.
 
+`python -m reflex guard-replay` tests the smallest kind of route (`reflex/guards.py`). A
+guard names the observation a scheduled job makes and what in it means there is work.
+The replay applies it to what each past run actually observed and counts the runs it
+would have skipped, the tokens those cost, and the false skips: runs it would have
+skipped that did report something. It runs no command and writes nothing. It cannot
+show that the model would have found nothing beyond what the observation shows, so
+false skips and missed savings are listed for a person to check.
+
+On the fleet, 2026-11-11: the fixed prompt is about 44,000 tokens (one-call sessions,
+a small sample of 7), sent on every model call. Content held in the ledger accounts for
+at most 32.4% of the input of multi-call sessions; shell and file-read results are the
+largest carried items after model output. Two scheduled jobs profiled ended `[SILENT]`
+in 93% and 96% of runs, at about 90,000 tokens a run, after one fixed look at a file.
+
 ### 6.1 The compile-coverage test
 
 A one-off experiment on top of the report, run by hand:

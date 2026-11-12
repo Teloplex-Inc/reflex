@@ -12,6 +12,7 @@ trace ledger
   python -m reflex backfill-outcomes                copy existing hindsight labels into outcomes
   python -m reflex label-process                    label finished runs clean or failed (weak evidence)
   python -m reflex verify [VERIFIERS.json]          apply your per-job checks to scheduled runs
+  python -m reflex guard-replay [GUARDS.json]       what a skip-if-nothing-to-do check would have saved
   python -m reflex shell-commands [--top N]         which shell commands run, and how each is classed
   python -m reflex job JOB [--samples N]            everything one scheduled job does, to write a route from
   python -m reflex context                          what fills the prompt: fixed overhead and carried content
@@ -25,6 +26,7 @@ decision models
 
 The ledger path is --ledger, else $REFLEX_LEDGER, else ~/.hermes/reflex/ledger.db.
 The verifiers file is the argument, else $REFLEX_VERIFIERS, else ~/.hermes/reflex/verifiers.json.
+The guards file is the argument, else $REFLEX_GUARDS, else ~/.hermes/reflex/guards.json.
 The Hermes state path is the argument, else $REFLEX_HERMES_STATE, else ~/.hermes/state.db.
 """
 
@@ -118,6 +120,10 @@ def main():
     if cmd == "context":
         from reflex import analyze
         print(analyze.context(ledger.connect(path)))
+        return 0
+    if cmd == "guard-replay":
+        from reflex import guards
+        print(guards.render(guards.replay(ledger.connect(path), rest[0] if rest else None)))
         return 0
     if cmd == "label-process":
         from reflex import outcomes

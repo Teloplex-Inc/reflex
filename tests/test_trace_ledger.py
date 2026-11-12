@@ -681,6 +681,69 @@ class AnalyzeTest(Base):
         self.assertEqual(row[3:], ["300", "4.5%", "1,200"])
 
 
+class GuardReplayTest(Base):
+    def fill(self):
+        runs = [  # what the queue showed, and what the run ended with
+            ("| 1 | done |", "[SILENT]"),
+            ("| 1 | done |", "No rows with status new. [SILENT]"),
+            ("| 1 | done |\n| 2 | new |", "Emailed row 2."),
+            ("| 1 | done |", "Row 1 looked stale, so I re-sent it."),      # work the queue did not show
+            ("| 3 | new |", "[SILENT]"),                                    # woke for nothing
+            (None, "[SILENT]"),                                             # never looked at the queue
+        ]
+        for i, (queue, final) in enumerate(runs):
+            spans = [{"kind": "model_call", "name": "m", "input_tokens": 990, "output_tokens": 10, "cost_usd": 0.01}]
+            if queue is not None:
+                spans.append({"kind": "tool_call", "name": "terminal", "output": queue,
+                              "input": {"command": "git pull && cat clients/onboarding-queue.md"}})
+            ledger.write_trace(self.con, {
+                "trace_id": "g%d" % i, "source": "proxy", "session_id": "cron_queue_2026110%d" % i,
+                "session_kind": "cron", "request": "check the queue", "started_at": float(i),
+                "final_output": final}, spans)
+        self.con.commit()
+
+    def guards_file(self, items):
+        p = os.path.join(self.dir, "guards.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(items, f)
+        return p
+
+    def test_replay_counts_savings_and_false_skips(self):
+        from reflex import guards
+        self.fill()
+        g = {"id": "new-rows", "job": "cron_queue", "observe": {"tool": "terminal", "input_matches": "cat .*queue"},
+             "work_when_output_matches": r"\| *new *\|"}
+        r = guards.replay(self.con, self.guards_file([g]))[0]
+        got = {k: v["runs"] for k, v in r["cells"].items()}
+        self.assertEqual(got, {"skip_silent": 2, "false_skip": 1, "wake_silent": 1, "wake_work": 1,
+                               "no_observation": 1})
+        self.assertEqual((r["runs"], r["skips"], r["cells"]["skip_silent"]["tokens"]), (6, 3, 2000))
+        self.assertAlmostEqual(r["skip_correct_share"], 2 / 3)
+        self.assertFalse(r["meets_first_skip_stage"])
+        self.assertEqual(r["false_skip_examples"], [("g3", "Row 1 looked stale, so I re-sent it.")])
+        text = guards.render([r])
+        self.assertIn("would have saved 33.3% of the job's tokens; skips correct: 66.7% of 3", text)
+        self.assertIn("false skip g3", text)
+        # the same guard written the other way round gives the same answer
+        g2 = {"id": "all-done", "job": "cron_queue", "observe": {"tool": "terminal"},
+              "skip_when_output_matches": r"^(\| \d+ \| done \|\s*)+$"}
+        r2 = guards.replay(self.con, self.guards_file([g2]))[0]
+        self.assertEqual({k: v["runs"] for k, v in r2["cells"].items()}, got)
+        # replaying changes nothing
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM outcomes").fetchone()[0], 0)
+
+    def test_guards_file_is_checked(self):
+        from reflex import guards
+        obs = {"tool": "terminal"}
+        for bad in ({"id": "x"}, [{"id": "x", "job": "j", "observe": obs}],
+                    [{"id": "x", "job": "j", "observe": obs, "work_when_output_matches": "a",
+                      "skip_when_output_matches": "b"}],
+                    [{"id": "x", "job": "j", "observe": {"command": "ls"}, "work_when_output_matches": "a"}],
+                    [{"id": "x", "job": "j", "observe": obs, "work_when_output_matches": "a", "run": "rm -rf /"}]):
+            with self.assertRaises(RuntimeError):
+                guards.load_guards(self.guards_file(bad))
+
+
 def by_verdict(rep, verdict):
     return [c["cluster"] for c in rep["clusters"] if c["verdict"] == verdict]
 
