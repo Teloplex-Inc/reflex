@@ -60,8 +60,13 @@ def _read_only(words, rules):
         if not args or args[0] not in rule["sub"]:
             return False
         args = args[1:]
+    deny = rule.get("deny", ())
     for a in args:
-        if any(a.startswith(d) for d in rule.get("deny", ())):
+        if any(a.startswith(d) for d in deny):
+            return False
+        # GNU tools accept any unambiguous abbreviation of a long option (--out for --output)
+        opt = a.split("=", 1)[0]
+        if opt.startswith("--") and len(opt) > 2 and any(d.startswith(opt) for d in deny):
             return False
         if a.startswith("-") and not a.startswith("--") and set(a[1:]) & set(rule.get("deny_short", "")):
             return False

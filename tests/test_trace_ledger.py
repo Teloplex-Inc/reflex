@@ -153,6 +153,13 @@ class LedgerTest(Base):
             "sort -o out.txt in.txt",
             "sort -no out.txt in.txt",
             "uniq in.txt out.txt",
+            "sort --out=out.txt in.txt",          # abbreviated long option
+            "sort --o out.txt in.txt",
+            "git diff --outp=x",
+            "file --comp magic",
+            "hostname newname",                   # sets the host name
+            "hostname -F /etc/hostname",
+            "date -s tomorrow",                   # date can set the clock, so it is not listed
             "git push origin master",
             "git -c core.pager=evil log",
             "git diff --output=x",
