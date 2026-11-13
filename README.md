@@ -88,6 +88,11 @@ in [docs/TRACE_LEDGER_SPEC.md](docs/TRACE_LEDGER_SPEC.md).
   guard's own read-only command on a schedule and logs wake or skip, and `guard-shadow`
   compares that log with what the runs then said. Neither stops a job; making skips real
   is not built.
+- **Audit.** `audit` lists scheduled jobs that may be broken without anyone having been
+  told: runs where a tool result shows a crash or non-zero exit and the final answer
+  names no problem, jobs that have stopped running, and runs that ended without a final
+  answer. These are lists for a person to read, not verdicts, and only work that ran
+  through the agent is covered.
 - **Deploy check.** `deploy-gate` compares two eval files and blocks a candidate that is
   worse.
 

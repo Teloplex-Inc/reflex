@@ -1042,5 +1042,38 @@ class ReportTest(Base):
             self.assertEqual(redact.redact(plain), plain)
 
 
+class AuditTest(Base):
+    def run_(self, job, n, hour, tool_output="ok", final="All good.", status="completed"):
+        ledger.write_trace(self.con, {
+            "trace_id": "%s-%d" % (job, n), "source": "hermes", "session_kind": "cron",
+            "session_id": "cron_%s_202611%02d_000000" % (job, n + 1), "started_at": hour * 3600.0,
+            "request": "run", "final_output": final, "status": status, "totals": {"cost_usd": 0.5}},
+            [{"kind": "model_call", "name": "m"},
+             {"kind": "tool_call", "name": "terminal", "input": '{"command": "x"}', "output": tool_output}])
+
+    def test_audit_lists_unreported_errors_stopped_jobs_and_unfinished_runs(self):
+        from reflex import audit
+        crash = '{"output": "Traceback (most recent call last):\\n boom", "exit_code": 1}'
+        for n in range(6):   # sync: hourly, runs to the end; hides its crash twice, reports it once
+            self.run_("sync", n, 100 + n, tool_output=crash if n in (1, 2, 3) else '{"output": "", "exit_code": 0}',
+                      final="Sync failed: traceback." if n == 3 else "All good.")
+        for n in range(5):   # old: hourly, then nothing for four days
+            self.run_("old", n, n)
+        self.run_("half", 0, 105, final=None, status="interrupted")
+        self.con.commit()
+        jobs = audit.build(self.con)
+        self.assertEqual((jobs["cron_sync"]["errors"], jobs["cron_sync"]["unreported"]), (3, 2))
+        self.assertEqual(jobs["cron_sync"]["example"][0], "sync-2")
+        self.assertFalse(jobs["cron_sync"]["stopped"])
+        self.assertTrue(jobs["cron_old"]["stopped"])
+        self.assertFalse(jobs["cron_half"]["stopped"])   # one run: no usual gap to judge by
+        self.assertEqual((jobs["cron_half"]["unfinished"], jobs["cron_half"]["unfinished_cost"]), (1, 0.5))
+        text = audit.render(jobs)
+        self.assertIn("cron_sync                        2 of 6 runs  (3 runs had an error in all)", text)
+        self.assertIn("cron_old                         5 runs, usually every 1.0 hours, last run 4.2 days", text)
+        self.assertIn("cron_half                        1 of 1 runs  $0.50", text)
+        self.assertIn("none", audit.render(audit.build(ledger.connect(os.path.join(self.dir, "empty.db")))))
+
+
 if __name__ == "__main__":
     unittest.main()

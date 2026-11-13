@@ -322,9 +322,36 @@ actually happened, checked independently, and treats agreement with the recorded
 as a weak signal only. The model's value in that job was diagnosing the failure, which
 is the part to keep: run the check in code and wake the model when it fails.
 
+The full archive confirmed it. Over 50 runs the checker failed 39; the model had graded
+12 of those fail, 23 pass or pass with notes, and 4 gave no verdict that could be read.
+Every run the model failed, the checker failed too. Eleven of the model's twelve fails
+were runs that crashed with a visible error; of about 26 where steps silently printed
+nothing, it caught one. The harness also had no way for a script's failure to start a
+model run, so the check now runs as a script that alerts a person directly.
+
 Working thresholds, both placeholders until measured: coverage above about 50% makes
 compile-down the main lever; below about 30% points to context and scheduling levers
 first.
+
+### 6.2 The audit
+
+`python -m reflex audit` looks for scheduled jobs that may be broken without anyone
+having been told. It reads the ledger only and calls no model. Three lists, per job:
+
+- Unreported errors: a tool result matches a crash or non-zero exit pattern and the
+  final answer matches no problem word. Both patterns are placeholders in
+  `reflex/audit.py`. A command can fail harmlessly, so each row carries the most recent
+  example to read.
+- Stopped jobs: jobs with at least 5 runs whose last run is more than 3 of their usual
+  gaps (the median) behind the newest trace in the ledger. The ledger's newest trace is
+  used, not the clock, so the result is the same whenever it is run. A job retired on
+  purpose is listed too.
+- Unfinished runs: runs that ended without a final answer, with their cost.
+
+Limits. Work the scheduler runs without a model leaves no trace and is not covered. A
+run whose input was quietly wrong, with no error anywhere, is not found either; that
+took the compile test in 6.1. Finding checks whose verdicts change on the same input is
+the next step and is not built.
 
 ## 7. Acceptance criteria
 

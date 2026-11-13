@@ -19,6 +19,7 @@ trace ledger
   python -m reflex guard-shadow [GUARDS.json]       compare the logged decisions with what the runs said
   python -m reflex context [--job JOB] [--since YYYY-MM-DD[THH:MM]]
                                                     what fills the prompt: fixed overhead and carried content
+  python -m reflex audit                            scheduled jobs that may be broken: hidden errors, stopped, unfinished
   python -m reflex report [--json] [--min-count N]  where the tokens go and which work recurs
 
 decision models
@@ -141,6 +142,10 @@ def main():
             except ValueError:
                 raise RuntimeError("--since takes YYYY-MM-DD or YYYY-MM-DDTHH:MM, in UTC")
         print(analyze.context(ledger.connect(path), job, since))
+        return 0
+    if cmd == "audit":
+        from reflex import audit
+        print(audit.render(audit.build(ledger.connect(path))))
         return 0
     if cmd == "guard-check" and rest:
         from reflex import guards
