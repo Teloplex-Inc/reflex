@@ -92,7 +92,8 @@ in [docs/TRACE_LEDGER_SPEC.md](docs/TRACE_LEDGER_SPEC.md).
   told: runs where a tool result shows a crash or non-zero exit and the final answer
   names no problem, jobs that have stopped running, and runs that ended without a final
   answer. These are lists for a person to read, not verdicts, and only work that ran
-  through the agent is covered.
+  through the agent is covered. `trace ID` prints one run step by step, to open a
+  row the audit points at.
 - **Deploy check.** `deploy-gate` compares two eval files and blocks a candidate that is
   worse.
 

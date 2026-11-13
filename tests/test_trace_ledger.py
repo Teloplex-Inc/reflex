@@ -1082,6 +1082,14 @@ class AuditTest(Base):
         self.assertTrue(jobs["cron_old"]["stopped"])
         self.assertFalse(jobs["cron_half"]["stopped"])   # one run: no usual gap to judge by
         self.assertEqual((jobs["cron_half"]["unfinished"], jobs["cron_half"]["unfinished_cost"]), (1, 0.5))
+        from reflex import analyze
+        text = analyze.trace(self.con, "sync-2")
+        self.assertIn("session cron_sync_20261103_000000 (cron), started 1970-01-05 06:00 UTC, completed, $0.50", text)
+        self.assertIn('terminal: {"command": "x"}', text)
+        self.assertIn("-> {\"output\": \"Traceback (most recent call last):", text)
+        self.assertIn("Final answer:\n  All good.", text)
+        with self.assertRaisesRegex(RuntimeError, "several traces match"):
+            analyze.trace(self.con, "sync-")
         text = audit.render(jobs)
         self.assertIn("cron_sync                        2 of 6 runs, 2 of them a crash  (3 runs had an error in all)", text)
         self.assertIn("cron_old                         5 runs, usually every 1.0 hours, last run 4.2 days", text)

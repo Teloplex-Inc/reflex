@@ -351,6 +351,9 @@ having been told. It reads the ledger only and calls no model. Three lists, per 
   purpose is listed too.
 - Unfinished runs: runs that ended without a final answer, with their cost.
 
+Each row names a trace. `python -m reflex trace ID` prints that run step by step: the
+request, each tool call with its result, and the final answer.
+
 Scheduled sessions whose id carries no job id are listed together as `(no job id)`.
 
 First runs, on two fleets on 2026-11-13: the exit-code pattern matched the stored tool

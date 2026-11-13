@@ -1,10 +1,12 @@
-"""Two read-only views of the ledger, for deciding what to build.
+"""Read-only views of the ledger, for deciding what to build.
 
     python -m reflex job JOB        everything one scheduled job does, to write a route from
     python -m reflex context [--job JOB] [--since YYYY-MM-DD[THH:MM]]
                                     what fills the prompt: fixed overhead and carried content
+    python -m reflex trace ID [--clip N]
+                                    one run, step by step
 
-Neither calls a model or changes anything. Both print stored text, which is redacted,
+None calls a model or changes anything. All print stored text, which is redacted,
 but read the output before sharing it: it holds real requests, commands and replies.
 """
 import json
@@ -112,6 +114,41 @@ def job_profile(con, job, samples=5):
     out += ["", "Final outputs (%d distinct after masking). Most recent of the commonest kinds:" % len(finals)]
     for key, (n, text) in sorted(finals.items(), key=lambda kv: -kv[1][0])[:samples]:
         out += ["  x%d" % n, "    " + _clip(text, 600)]
+    return "\n".join(out)
+
+
+# ------------------------------------------------------------------------- trace
+
+
+def trace(con, trace_id, clip=600):
+    """One run, step by step: the request, each tool call with its result, the final answer.
+    For opening a trace the audit or the report points at. `trace_id` may be a prefix."""
+    rows = con.execute(
+        "SELECT trace_id, session_id, session_kind, started_at, status, request, final_output, cost_usd "
+        "FROM traces WHERE trace_id LIKE ? ORDER BY trace_id LIMIT 2", (trace_id.replace("%", "") + "%",)).fetchall()
+    if len(rows) != 1:
+        raise RuntimeError("%s traces match %r" % ("no" if not rows else "several", trace_id))
+    tid, sid, kind, started, status, request, final, cost = rows[0]
+    out = ["TRACE %s" % tid,
+           "session %s (%s), started %s, %s%s" % (
+               sid, kind, time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(started)) if started else "unknown",
+               "no final answer" if status == "interrupted" else status,
+               "" if cost is None else ", $%.2f" % cost),
+           "", "Request:", "  " + _clip(request, clip), ""]
+    for seq, kind, name, stored_in, stored_out in con.execute(
+            "SELECT seq, kind, name, input, output FROM spans WHERE trace_id = ? ORDER BY seq", (tid,)):
+        if kind == "model_call":
+            text = ledger.read_payload(con, stored_out)
+            try:   # a call that asked for tools stores its text beside them
+                text = json.loads(text).get("content") or ""
+            except (ValueError, AttributeError, TypeError):
+                pass
+            if text:
+                out.append("%4d  model: %s" % (seq, _clip(text, clip)))
+        elif kind == "tool_call":
+            out += ["%4d  %s: %s" % (seq, name or "?", _clip(ledger.read_payload(con, stored_in), clip)),
+                    "        -> %s" % _clip(ledger.read_payload(con, stored_out), clip)]
+    out += ["", "Final answer:", "  " + _clip(ledger.read_payload(con, final), 4 * clip)]
     return "\n".join(out)
 
 
