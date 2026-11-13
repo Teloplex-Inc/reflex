@@ -340,13 +340,23 @@ having been told. It reads the ledger only and calls no model. Three lists, per 
 
 - Unreported errors: a tool result matches a crash or non-zero exit pattern and the
   final answer matches no problem word. Both patterns are placeholders in
-  `reflex/audit.py`. A command can fail harmlessly, so each row carries the most recent
-  example to read.
+  `reflex/audit.py`. Crashes (a traceback or a timeout) are counted apart and sorted
+  first. A result the harness itself marks "not an error", or a command held for
+  approval, is not counted. A command can still fail harmlessly, and the model may have
+  recovered later in the run, so each row carries an example to read: the most recent
+  crash if there is one.
 - Stopped jobs: jobs with at least 5 runs whose last run is more than 3 of their usual
   gaps (the median) behind the newest trace in the ledger. The ledger's newest trace is
   used, not the clock, so the result is the same whenever it is run. A job retired on
   purpose is listed too.
 - Unfinished runs: runs that ended without a final answer, with their cost.
+
+Scheduled sessions whose id carries no job id are listed together as `(no job id)`.
+
+First runs, on two fleets on 2026-11-13: the exit-code pattern matched the stored tool
+results on both, and both stopped lists contained the jobs known to be retired. The
+unreported list was long (26 and 59 jobs) and mostly harmless exits, which is why
+crashes are now split out and harness-marked results left out.
 
 Limits. Work the scheduler runs without a model leaves no trace and is not covered. A
 run whose input was quietly wrong, with no error anywhere, is not found either; that

@@ -1060,16 +1060,30 @@ class AuditTest(Base):
         for n in range(5):   # old: hourly, then nothing for four days
             self.run_("old", n, n)
         self.run_("half", 0, 105, final=None, status="interrupted")
+        # the formats two fleets store: a plain non-zero exit counts, but not as a crash;
+        # what the harness marks harmless, or holds for approval, does not count at all
+        self.run_("grep", 0, 101, '{"output": "no such file", "exit_code": 2, "error": null}')
+        self.run_("grep", 1, 102, '{"output": "", "exit_code": 1, "error": null, '
+                                  '"exit_code_meaning": "No matches found (not an error)"}')
+        self.run_("grep", 2, 103, '{"output": "", "exit_code": -1, "status": "pending_approval", '
+                                  '"approval_pending": true}')
+        for n in range(2):   # scheduled sessions whose ids carry no job id are listed together
+            ledger.write_trace(self.con, {"trace_id": "loose-%d" % n, "source": "hermes", "session_kind": "cron",
+                                          "session_id": "2026110%d_080500_3e922c" % (n + 1), "request": "run",
+                                          "status": "interrupted", "started_at": 3600.0 * n}, [])
         self.con.commit()
         jobs = audit.build(self.con)
         self.assertEqual((jobs["cron_sync"]["errors"], jobs["cron_sync"]["unreported"]), (3, 2))
+        self.assertEqual(jobs["cron_sync"]["crashes"], 2)
         self.assertEqual(jobs["cron_sync"]["example"][0], "sync-2")
+        self.assertEqual((jobs["cron_grep"]["unreported"], jobs["cron_grep"]["crashes"]), (1, 0))
+        self.assertEqual((jobs["(no job id)"]["runs"], jobs["(no job id)"]["unfinished"]), (2, 2))
         self.assertFalse(jobs["cron_sync"]["stopped"])
         self.assertTrue(jobs["cron_old"]["stopped"])
         self.assertFalse(jobs["cron_half"]["stopped"])   # one run: no usual gap to judge by
         self.assertEqual((jobs["cron_half"]["unfinished"], jobs["cron_half"]["unfinished_cost"]), (1, 0.5))
         text = audit.render(jobs)
-        self.assertIn("cron_sync                        2 of 6 runs  (3 runs had an error in all)", text)
+        self.assertIn("cron_sync                        2 of 6 runs, 2 of them a crash  (3 runs had an error in all)", text)
         self.assertIn("cron_old                         5 runs, usually every 1.0 hours, last run 4.2 days", text)
         self.assertIn("cron_half                        1 of 1 runs  $0.50", text)
         self.assertIn("none", audit.render(audit.build(ledger.connect(os.path.join(self.dir, "empty.db")))))
